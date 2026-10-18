@@ -7,6 +7,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Barlow+Condensed:wght@500;600;700&family=JetBrains+Mono:wght@400;600&display=swap">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <style>
 /* Layout: barra de comando fixa no topo + abas (Dia / Ciclo / Colaboradores / Registros); conteúdo em grid que vira 1 coluna no celular */
 :root{
@@ -295,7 +297,7 @@ select.tsel.ATESTADO{background:var(--atest-soft);color:var(--atest);border-colo
       <div class="scroll" id="cycChart"></div>
     </div>
     <div class="two">
-      <div class="card"><h2>Mais ausências no período</h2><p class="sub">Top 15. Clique para ver o histórico.</p><div class="scroll" id="cycTop"></div></div>
+      <div class="card"><h2>Quem mais se destacou</h2><p class="sub">Top 15 em faltas e atestados, com os dias de cada um (vermelho = falta, azul = atestado). Clique no nome para ver o histórico.</p><div class="scroll" id="cycTop"></div></div>
       <div class="grid">
         <div class="card"><h2>Por dia da semana</h2><p class="sub">Soma do período</p><div id="cycWd"></div></div>
         <div class="card"><h2>Reincidência</h2><p class="sub">Pessoas por quantidade de ausências</p><div class="dist" id="cycDist"></div><p class="note" id="cycConc" style="margin:10px 0 0"></p></div>
@@ -636,8 +638,8 @@ function renderCiclo(){
   // top
   const ppl = byPerson(rows).sort((x,y)=>y.tot-x.tot || x.nome.localeCompare(y.nome,"pt-BR")).slice(0,15);
   const mx = ppl[0]?.tot||1;
-  $("#cycTop").innerHTML = ppl.length ? `<table><thead><tr><th>Colaborador</th><th class="n">F</th><th class="n">A</th><th class="n">Total</th><th style="width:30%"></th></tr></thead><tbody>${
-    ppl.map(p=>`<tr class="click" data-p="${esc(p.key)}"><td style="text-transform:capitalize">${esc(title(p.nome))}</td><td class="n">${p.F}</td><td class="n">${p.A}</td><td class="n"><b>${p.tot}</b></td><td><div class="hbar" style="width:${Math.max(8,p.tot/mx*100)}%"><span style="width:${p.F/p.tot*100}%;background:var(--falta)"></span><span style="width:${p.A/p.tot*100}%;background:var(--atest)"></span><span style="width:${p.O/p.tot*100}%;background:var(--outro)"></span></div></td></tr>`).join("")}</tbody></table>` : `<div class="empty">Sem registros no período.</div>`;
+  $("#cycTop").innerHTML = ppl.length ? `<table><thead><tr><th>Colaborador</th><th class="n">F</th><th class="n">A</th><th class="n">Total</th><th style="width:22%"></th><th>Dias</th></tr></thead><tbody>${
+    ppl.map(p=>`<tr class="click" data-p="${esc(p.key)}"><td style="text-transform:capitalize">${esc(title(p.nome))}</td><td class="n">${p.F}</td><td class="n">${p.A}</td><td class="n"><b>${p.tot}</b></td><td><div class="hbar" style="width:${Math.max(8,p.tot/mx*100)}%"><span style="width:${p.F/p.tot*100}%;background:var(--falta)"></span><span style="width:${p.A/p.tot*100}%;background:var(--atest)"></span><span style="width:${p.O/p.tot*100}%;background:var(--outro)"></span></div></td><td style="min-width:180px"><div style="display:flex;flex-wrap:wrap;gap:3px">${p.dates.map(x=>`<span class="pill ${tipoClass(x.t)}" style="font-size:10.5px;padding:1px 6px" title="${esc(x.t)}">${brShort(x.d)}</span>`).join("")}</div></td></tr>`).join("")}</tbody></table>` : `<div class="empty">Sem registros no período.</div>`;
   $("#cycTop").querySelectorAll("[data-p]").forEach(el=>el.addEventListener("click",()=>openPerson(el.dataset.p)));
   // dia da semana (seg→dom)
   const wd=[1,2,3,4,5,6,0].map(w=>{ const rr=rows.filter(r=>wdOf(r.d)===w); return {w, F:rr.filter(r=>r.tipo==="FALTA").length, A:rr.filter(r=>r.tipo==="ATESTADO").length, t:rr.length}; });
@@ -860,25 +862,287 @@ function exportXlsx(){
   const ws4=XLSX.utils.aoa_to_sheet(rg); ws4["!cols"]=[{wch:10},{wch:42},{wch:10},{wch:22},{wch:13},{wch:5},{wch:12}]; ws4["!autofilter"]={ref:`A1:G${rg.length}`}; XLSX.utils.book_append_sheet(wb,ws4,"Registros");
   XLSX.writeFile(wb,`Ausencias_${fileStamp()}.xlsx`); toast("Excel gerado");
 }
-function exportOrig(fa,fb){
-  // mesmo layout da planilha de fatura: blocos por dia + linha TOTAL N, e totais no canto
+/* Gera a planilha da fatura no mesmo visual da planilha original + aba "Resumo por dia" + gráfico nativo do Excel.
+   rows: [{id,nome,mat,cargo,d:"YYYY-MM-DD",tipo}]  ·  opts: {a,b,title}  ·  retorna ArrayBuffer */
+async function buildFaturaXlsx(ExcelJS, JSZip, rows, opts){
+  const WD3 = ["dom","seg","ter","qua","qui","sex","sáb"];
+  const WDF = ["domingo","segunda","terça","quarta","quinta","sexta","sábado"];
+  const toDate = k => { const [y,m,d]=k.split("-").map(Number); return new Date(Date.UTC(y,m-1,d)); };
+  const brS = k => k.slice(8)+"/"+k.slice(5,7);
+  const sorted = [...rows].sort((x,y)=> x.d<y.d?-1:x.d>y.d?1: String(x.nome).localeCompare(String(y.nome),"pt-BR",{sensitivity:"base"}));
+  const days = [...new Set(sorted.map(r=>r.d))];
+
+  const C = { yellow:"FFFFFF00", pink:"FFFFC7CE", red:"FFC00000", green:"FFE2EFDA", greenDk:"FF548235", line:"FF000000",
+              head:"FF1F3B57", zebra:"FFF3F6F9", falta:"FFD0453A", atest:"FF2C74C9" };
+  const thin = {style:"thin",color:{argb:"FF000000"}};
+  const box = {top:thin,left:thin,bottom:thin,right:thin};
+
+  const wb = new ExcelJS.Workbook();
+  wb.creator = "Faltas e Atestados"; wb.created = new Date();
+
+  /* ---------- Planilha1 (formato da fatura) ---------- */
+  const ws = wb.addWorksheet("Planilha1", {views:[{state:"frozen",ySplit:1}]});
+  ws.columns = [{width:11},{width:42},{width:12},{width:23},{width:15},{width:16},{width:4},{width:4},{width:4},{width:4},{width:19},{width:9}];
+  const hdr = ws.addRow(["GROO ID","NOME","MATRICULA","CARGO","DATA AUSENCIA","TIPO DE FALTA"]);
+  hdr.eachCell(c=>{ c.fill={type:"pattern",pattern:"solid",fgColor:{argb:C.yellow}}; c.font={name:"Calibri",size:11}; });
+  hdr.getCell(5).alignment={horizontal:"center"}; hdr.getCell(6).alignment={horizontal:"center"};
+
+  let r = 2;
+  const dayRows = {};      // dia -> [primeira, última] linha de dados
+  days.forEach(day=>{
+    const list = sorted.filter(x=>x.d===day);
+    const first = r;
+    list.forEach(x=>{
+      const row = ws.getRow(r++);
+      row.values = [x.id===""?null:x.id, x.nome, x.mat===""?null:x.mat, x.cargo, toDate(x.d), x.tipo];
+      row.getCell(5).numFmt = "mm-dd-yy"; row.getCell(5).alignment={horizontal:"right"};
+      const t = row.getCell(6); t.alignment={horizontal:"center"};
+      if (x.tipo==="FALTA"){ t.font={color:{argb:C.red}}; t.fill={type:"pattern",pattern:"solid",fgColor:{argb:C.pink}}; }
+    });
+    const last = r-1; dayRows[day]=[first,last];
+    const tr = ws.getRow(r++);
+    for (let c=1;c<=6;c++) tr.getCell(c).fill={type:"pattern",pattern:"solid",fgColor:{argb:C.green}};
+    const tc = tr.getCell(6);
+    tc.value = {formula:`"TOTAL "&COUNTA(F${first}:F${last})`, result:`TOTAL ${list.length}`};
+    tc.border = box; tc.alignment={horizontal:"center"}; tc.font={bold:false};
+  });
+  const lastRow = Math.max(2, r-1);
+  const nF = sorted.filter(x=>x.tipo==="FALTA").length, nA = sorted.filter(x=>x.tipo==="ATESTADO").length;
+  [["TOTAL FALTA",{formula:`COUNTIF(F2:F${lastRow},"FALTA")`,result:nF}],
+   ["TOTAL ATESTADO",{formula:`COUNTIF(F2:F${lastRow},"ATESTADO")`,result:nA}],
+   ["TOTAL DE ABS",{formula:"L4+L5",result:nF+nA}]].forEach(([lab,val],i)=>{
+    const k = ws.getCell(`K${4+i}`), l = ws.getCell(`L${4+i}`);
+    k.value=lab; l.value=val;
+    [k,l].forEach(c=>{ c.font={bold:true}; c.border=box; c.fill={type:"pattern",pattern:"solid",fgColor:{argb:C.green}}; c.alignment={horizontal:"center"}; });
+  });
+  const tt = ws.getCell("K2"); tt.value = opts.title || "FATURA"; tt.font={bold:true,size:12,color:{argb:C.head}};
+
+  /* ---------- Resumo por dia ---------- */
+  const rs = wb.addWorksheet("Resumo por dia", {views:[{state:"frozen",ySplit:1}]});
+  rs.columns = [{width:13},{width:11},{width:10},{width:11},{width:9},{width:12},{width:13}];
+  const h2 = rs.addRow(["DATA","DIA","FALTAS","ATESTADOS","TOTAL","ACUMULADO","% ATESTADO"]);
+  h2.eachCell(c=>{ c.fill={type:"pattern",pattern:"solid",fgColor:{argb:C.head}}; c.font={bold:true,color:{argb:"FFFFFFFF"}}; c.alignment={horizontal:"center",vertical:"middle"}; c.border=box; });
+  h2.height = 20;
+  let acc = 0;
+  days.forEach((day,i)=>{
+    const n=i+2, list=sorted.filter(x=>x.d===day), f=list.filter(x=>x.tipo==="FALTA").length, a=list.filter(x=>x.tipo==="ATESTADO").length;
+    acc += list.length;
+    const row = rs.getRow(n);
+    row.values = [toDate(day), `${brS(day)} ${WD3[toDate(day).getUTCDay()]}`,
+      {formula:`COUNTIFS(Planilha1!$E:$E,A${n},Planilha1!$F:$F,"FALTA")`, result:f},
+      {formula:`COUNTIFS(Planilha1!$E:$E,A${n},Planilha1!$F:$F,"ATESTADO")`, result:a},
+      {formula:`C${n}+D${n}`, result:f+a},
+      {formula: n===2 ? `E${n}` : `F${n-1}+E${n}`, result:acc},
+      {formula:`IF(E${n}=0,0,D${n}/E${n})`, result: (f+a)?a/(f+a):0}];
+    row.getCell(1).numFmt="dd/mm/yyyy"; row.getCell(7).numFmt="0%";
+    row.eachCell({includeEmpty:true},(c,ci)=>{ if(ci>7) return; c.border={bottom:{style:"thin",color:{argb:"FFD9DEE5"}}}; c.alignment={horizontal: ci<=2?"left":"center"};
+      if(i%2) c.fill={type:"pattern",pattern:"solid",fgColor:{argb:C.zebra}}; });
+    row.getCell(3).font={color:{argb:C.falta},bold:true}; row.getCell(4).font={color:{argb:C.atest},bold:true}; row.getCell(5).font={bold:true};
+  });
+  const nEnd = days.length+1, tRow = nEnd+1;
+  const tot = rs.getRow(tRow);
+  tot.values = ["TOTAL","", {formula:`SUM(C2:C${nEnd})`,result:nF}, {formula:`SUM(D2:D${nEnd})`,result:nA}, {formula:`SUM(E2:E${nEnd})`,result:nF+nA}, "", {formula:`IF(E${tRow}=0,0,D${tRow}/E${tRow})`,result:(nF+nA)?nA/(nF+nA):0}];
+  tot.getCell(7).numFmt="0%";
+  tot.eachCell({includeEmpty:true},(c,ci)=>{ if(ci>7) return; c.font={bold:true,color:{argb:"FFFFFFFF"}}; c.fill={type:"pattern",pattern:"solid",fgColor:{argb:C.head}}; c.alignment={horizontal:ci<=2?"left":"center"}; c.border=box; });
+  const media = days.length ? (nF+nA)/days.length : 0;
+  rs.getCell(`A${tRow+2}`).value = "Média por dia"; rs.getCell(`C${tRow+2}`).value = {formula:`IF(COUNT(E2:E${nEnd})=0,0,AVERAGE(E2:E${nEnd}))`, result:Math.round(media*10)/10};
+  rs.getCell(`C${tRow+2}`).numFmt="0.0"; rs.getCell(`A${tRow+2}`).font={bold:true};
+
+  /* ---------- Ranking (quem mais faltou / atestou) ---------- */
+  const pm = new Map();
+  sorted.forEach(x=>{ const k = x.id!==""&&x.id!=null ? "id:"+x.id : "nm:"+String(x.nome).toUpperCase().trim();
+    if(!pm.has(k)) pm.set(k,{id:x.id,nome:x.nome,mat:x.mat,f:0,a:0,dates:[]}); const p=pm.get(k); if(x.tipo==="FALTA")p.f++; else if(x.tipo==="ATESTADO")p.a++; p.dates.push(x); });
+  const ppl = [...pm.values()].map(p=>({...p,t:p.f+p.a})).sort((x,y)=>y.t-x.t||y.f-x.f||String(x.nome).localeCompare(String(y.nome),"pt-BR"));
+  const rk = wb.addWorksheet("Ranking", {views:[{state:"frozen",ySplit:1}]});
+  rk.columns = [{width:5},{width:40},{width:11},{width:9},{width:11},{width:8},{width:70}];
+  const h3 = rk.addRow(["#","NOME","GROO ID","FALTAS","ATESTADOS","TOTAL","DIAS (F = falta · A = atestado)"]);
+  h3.eachCell(c=>{ c.fill={type:"pattern",pattern:"solid",fgColor:{argb:C.head}}; c.font={bold:true,color:{argb:"FFFFFFFF"}}; c.alignment={horizontal:"center",vertical:"middle"}; c.border=box; }); h3.height=20;
+  ppl.forEach((p,i)=>{ const n=i+2; const hasId = p.id!==""&&p.id!=null;
+    const keyCol = hasId ? "$A:$A" : "$B:$B", keyVal = hasId ? `C${n}` : `B${n}`;
+    const row = rk.getRow(n);
+    row.values=[i+1, p.nome, hasId?p.id:null,
+      {formula:`COUNTIFS(Planilha1!${keyCol},${keyVal},Planilha1!$F:$F,"FALTA")`,result:p.f},
+      {formula:`COUNTIFS(Planilha1!${keyCol},${keyVal},Planilha1!$F:$F,"ATESTADO")`,result:p.a},
+      {formula:`D${n}+E${n}`,result:p.t},
+      p.dates.map(x=>`${brS(x.d)}(${x.tipo==="FALTA"?"F":x.tipo==="ATESTADO"?"A":"O"})`).join("  ")];
+    row.eachCell({includeEmpty:true},(c,ci)=>{ if(ci>7) return; c.border={bottom:{style:"thin",color:{argb:"FFD9DEE5"}}}; c.alignment={horizontal: ci===2||ci===7?"left":"center", vertical:"middle", wrapText: ci===7};
+      if(i%2) c.fill={type:"pattern",pattern:"solid",fgColor:{argb:C.zebra}}; });
+    row.getCell(4).font={color:{argb:C.falta},bold:true}; row.getCell(5).font={color:{argb:C.atest},bold:true}; row.getCell(6).font={bold:true};
+    if(p.t>=5){ row.getCell(6).fill={type:"pattern",pattern:"solid",fgColor:{argb:C.pink}}; row.getCell(6).font={bold:true,color:{argb:C.red}}; }
+    if(i<3){ row.getCell(1).font={bold:true,color:{argb:"FFB07A00"}}; }
+  });
+  const topN = Math.min(15, ppl.length);
+
+  /* ---------- Mapa por dia (pessoa x dia) ---------- */
+  const mp = wb.addWorksheet("Mapa por dia", {views:[{state:"frozen",xSplit:2,ySplit:2}]});
+  mp.getColumn(1).width=40; mp.getColumn(2).width=7;
+  const m1 = mp.getRow(1), m2 = mp.getRow(2);
+  m1.getCell(1).value = "COLABORADOR"; m1.getCell(2).value = "TOTAL"; m2.getCell(1).value = "F = falta  ·  A = atestado";
+  days.forEach((day,j)=>{ const c=j+3; mp.getColumn(c).width=6.2; m1.getCell(c).value=brS(day); m2.getCell(c).value=WD3[toDate(day).getUTCDay()]; });
+  [m1,m2].forEach((rw,ri)=>rw.eachCell({includeEmpty:true},(c,ci)=>{ if(ci>days.length+2) return; c.fill={type:"pattern",pattern:"solid",fgColor:{argb:ri?"FF2E5478":C.head}}; c.font={bold:!ri,color:{argb:"FFFFFFFF"},size:ri?9:11}; c.alignment={horizontal:ci===1?"left":"center"}; }));
+  ppl.forEach((p,i)=>{ const rw = mp.getRow(i+3); rw.getCell(1).value=p.nome; rw.getCell(2).value=p.t; rw.getCell(2).font={bold:true}; rw.getCell(2).alignment={horizontal:"center"};
+    const byD={}; p.dates.forEach(x=>byD[x.d]=x.tipo);
+    days.forEach((day,j)=>{ const c=rw.getCell(j+3); const t=byD[day]; c.alignment={horizontal:"center"}; c.border={right:{style:"hair",color:{argb:"FFD9DEE5"}},bottom:{style:"hair",color:{argb:"FFD9DEE5"}}};
+      if(t==="FALTA"){ c.value="F"; c.fill={type:"pattern",pattern:"solid",fgColor:{argb:C.falta}}; c.font={bold:true,color:{argb:"FFFFFFFF"}}; }
+      else if(t==="ATESTADO"){ c.value="A"; c.fill={type:"pattern",pattern:"solid",fgColor:{argb:C.atest}}; c.font={bold:true,color:{argb:"FFFFFFFF"}}; }
+      else if(t){ c.value="O"; } });
+  });
+  const mt = mp.getRow(ppl.length+3); mt.getCell(1).value="TOTAL DO DIA"; mt.getCell(2).value=nF+nA;
+  days.forEach((day,j)=>{ mt.getCell(j+3).value = sorted.filter(x=>x.d===day).length; });
+  mt.eachCell({includeEmpty:true},(c,ci)=>{ if(ci>days.length+2) return; c.font={bold:true,color:{argb:"FFFFFFFF"}}; c.fill={type:"pattern",pattern:"solid",fgColor:{argb:C.head}}; c.alignment={horizontal:ci===1?"left":"center"}; });
+
+  const buf = await wb.xlsx.writeBuffer();
+  if (!days.length) return buf;
+
+  /* ---------- Gráfico nativo (injetado no pacote) ---------- */
+  const zip = await JSZip.loadAsync(buf);
+  const esc = s => String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+  const n = days.length, S = "'Resumo por dia'";
+  const per = days.map(day=>{ const l=sorted.filter(x=>x.d===day); return {lab:`${brS(day)} ${WD3[toDate(day).getUTCDay()]}`, f:l.filter(x=>x.tipo==="FALTA").length, a:l.filter(x=>x.tipo==="ATESTADO").length}; });
+  let run=0; per.forEach(p=>{ run+=p.f+p.a; p.acc=run; });
+  const strCache = arr => `<c:strCache><c:ptCount val="${arr.length}"/>${arr.map((v,i)=>`<c:pt idx="${i}"><c:v>${esc(v)}</c:v></c:pt>`).join("")}</c:strCache>`;
+  const numCache = arr => `<c:numCache><c:formatCode>General</c:formatCode><c:ptCount val="${arr.length}"/>${arr.map((v,i)=>`<c:pt idx="${i}"><c:v>${v}</c:v></c:pt>`).join("")}</c:numCache>`;
+  const cat = `<c:cat><c:strRef><c:f>${S}!$B$2:$B$${n+1}</c:f>${strCache(per.map(p=>p.lab))}</c:strRef></c:cat>`;
+  const txt = (sz,b,col) => `<c:txPr><a:bodyPr/><a:lstStyle/><a:p><a:pPr><a:defRPr sz="${sz}" b="${b?1:0}"><a:solidFill><a:srgbClr val="${col}"/></a:solidFill><a:latin typeface="Calibri"/></a:defRPr></a:pPr><a:endParaRPr lang="pt-BR"/></a:p></c:txPr>`;
+  const barSer = (idx,name,col,color,vals) => `<c:ser><c:idx val="${idx}"/><c:order val="${idx}"/>
+    <c:tx><c:strRef><c:f>${S}!$${col}$1</c:f>${strCache([name])}</c:strRef></c:tx>
+    <c:spPr><a:solidFill><a:srgbClr val="${color}"/></a:solidFill><a:ln><a:noFill/></a:ln></c:spPr><c:invertIfNegative val="0"/>
+    <c:dLbls><c:numFmt formatCode="0;;;" sourceLinked="0"/><c:spPr><a:noFill/><a:ln><a:noFill/></a:ln></c:spPr>${txt(900,true,"FFFFFF")}<c:dLblPos val="ctr"/><c:showLegendKey val="0"/><c:showVal val="1"/><c:showCatName val="0"/><c:showSerName val="0"/><c:showPercent val="0"/><c:showBubbleSize val="0"/></c:dLbls>
+    ${cat}<c:val><c:numRef><c:f>${S}!$${col}$2:$${col}$${n+1}</c:f>${numCache(vals)}</c:numRef></c:val></c:ser>`;
+  const chartXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<c:chartSpace xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+<c:roundedCorners val="0"/>
+<c:chart>
+<c:title><c:tx><c:rich><a:bodyPr/><a:lstStyle/><a:p><a:pPr><a:defRPr sz="1400" b="1"><a:solidFill><a:srgbClr val="1F3B57"/></a:solidFill></a:defRPr></a:pPr><a:r><a:rPr lang="pt-BR" sz="1400" b="1"><a:solidFill><a:srgbClr val="1F3B57"/></a:solidFill></a:rPr><a:t>${esc(opts.chartTitle||"Faltas e Atestados por dia")}</a:t></a:r></a:p></c:rich></c:tx><c:overlay val="0"/></c:title>
+<c:autoTitleDeleted val="0"/>
+<c:plotArea><c:layout/>
+<c:barChart><c:barDir val="col"/><c:grouping val="stacked"/><c:varyColors val="0"/>
+${barSer(0,"FALTAS","C","D0453A",per.map(p=>p.f))}
+${barSer(1,"ATESTADOS","D","2C74C9",per.map(p=>p.a))}
+<c:gapWidth val="${n<8?160:n<16?80:45}"/><c:overlap val="100"/><c:axId val="1001"/><c:axId val="1002"/></c:barChart>
+<c:lineChart><c:grouping val="standard"/><c:varyColors val="0"/>
+<c:ser><c:idx val="2"/><c:order val="2"/><c:tx><c:strRef><c:f>${S}!$F$1</c:f>${strCache(["ACUMULADO"])}</c:strRef></c:tx>
+<c:spPr><a:ln w="31750" cap="rnd"><a:solidFill><a:srgbClr val="F2A900"/></a:solidFill><a:round/></a:ln></c:spPr>
+<c:marker><c:symbol val="circle"/><c:size val="6"/><c:spPr><a:solidFill><a:srgbClr val="FFFFFF"/></a:solidFill><a:ln w="19050"><a:solidFill><a:srgbClr val="F2A900"/></a:solidFill></a:ln></c:spPr></c:marker>
+<c:dLbls><c:delete val="1"/></c:dLbls>
+${cat}<c:val><c:numRef><c:f>${S}!$F$2:$F$${n+1}</c:f>${numCache(per.map(p=>p.acc))}</c:numRef></c:val><c:smooth val="0"/></c:ser>
+<c:marker val="1"/><c:axId val="1003"/><c:axId val="1004"/></c:lineChart>
+<c:catAx><c:axId val="1001"/><c:scaling><c:orientation val="minMax"/></c:scaling><c:delete val="0"/><c:axPos val="b"/><c:numFmt formatCode="General" sourceLinked="0"/><c:majorTickMark val="none"/><c:minorTickMark val="none"/><c:tickLblPos val="nextTo"/><c:spPr><a:ln w="9525"><a:solidFill><a:srgbClr val="BFC7D1"/></a:solidFill></a:ln></c:spPr>${txt(800,false,"5D6B78")}<c:crossAx val="1002"/><c:crosses val="autoZero"/><c:auto val="1"/><c:lblAlgn val="ctr"/><c:lblOffset val="100"/><c:noMultiLvlLbl val="0"/></c:catAx>
+<c:valAx><c:axId val="1002"/><c:scaling><c:orientation val="minMax"/></c:scaling><c:delete val="0"/><c:axPos val="l"/><c:majorGridlines><c:spPr><a:ln w="9525"><a:solidFill><a:srgbClr val="E3E8EE"/></a:solidFill></a:ln></c:spPr></c:majorGridlines>
+<c:title><c:tx><c:rich><a:bodyPr rot="-5400000" vert="horz"/><a:lstStyle/><a:p><a:pPr><a:defRPr sz="900" b="0"/></a:pPr><a:r><a:rPr lang="pt-BR" sz="900" b="0"><a:solidFill><a:srgbClr val="5D6B78"/></a:solidFill></a:rPr><a:t>ABS no dia</a:t></a:r></a:p></c:rich></c:tx><c:overlay val="0"/></c:title>
+<c:numFmt formatCode="0" sourceLinked="0"/><c:majorTickMark val="none"/><c:minorTickMark val="none"/><c:tickLblPos val="nextTo"/><c:spPr><a:ln><a:noFill/></a:ln></c:spPr>${txt(800,false,"5D6B78")}<c:crossAx val="1001"/><c:crosses val="autoZero"/><c:crossBetween val="between"/></c:valAx>
+<c:catAx><c:axId val="1003"/><c:scaling><c:orientation val="minMax"/></c:scaling><c:delete val="1"/><c:axPos val="b"/><c:majorTickMark val="none"/><c:minorTickMark val="none"/><c:tickLblPos val="nextTo"/><c:crossAx val="1004"/><c:crosses val="autoZero"/><c:auto val="1"/><c:lblAlgn val="ctr"/><c:lblOffset val="100"/><c:noMultiLvlLbl val="0"/></c:catAx>
+<c:valAx><c:axId val="1004"/><c:scaling><c:orientation val="minMax"/></c:scaling><c:delete val="0"/><c:axPos val="r"/>
+<c:title><c:tx><c:rich><a:bodyPr rot="-5400000" vert="horz"/><a:lstStyle/><a:p><a:pPr><a:defRPr sz="900" b="0"/></a:pPr><a:r><a:rPr lang="pt-BR" sz="900" b="0"><a:solidFill><a:srgbClr val="B07A00"/></a:solidFill></a:rPr><a:t>Acumulado da fatura</a:t></a:r></a:p></c:rich></c:tx><c:overlay val="0"/></c:title>
+<c:numFmt formatCode="0" sourceLinked="0"/><c:majorTickMark val="none"/><c:minorTickMark val="none"/><c:tickLblPos val="nextTo"/><c:spPr><a:ln><a:noFill/></a:ln></c:spPr>${txt(800,false,"B07A00")}<c:crossAx val="1003"/><c:crosses val="max"/><c:crossBetween val="between"/></c:valAx>
+<c:spPr><a:noFill/><a:ln><a:noFill/></a:ln></c:spPr>
+</c:plotArea>
+<c:legend><c:legendPos val="t"/><c:overlay val="0"/>${txt(900,false,"333F4B")}</c:legend>
+<c:plotVisOnly val="1"/><c:dispBlanksAs val="gap"/>
+</c:chart>
+<c:spPr><a:solidFill><a:srgbClr val="FFFFFF"/></a:solidFill><a:ln w="9525"><a:solidFill><a:srgbClr val="D9DEE5"/></a:solidFill></a:ln></c:spPr>
+<c:txPr><a:bodyPr/><a:lstStyle/><a:p><a:pPr><a:defRPr><a:latin typeface="Calibri"/></a:defRPr></a:pPr><a:endParaRPr lang="pt-BR"/></a:p></c:txPr>
+</c:chartSpace>`;
+
+  // pizza Falta x Atestado
+  const pieXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<c:chartSpace xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+<c:roundedCorners val="0"/><c:chart>
+<c:title><c:tx><c:rich><a:bodyPr/><a:lstStyle/><a:p><a:pPr><a:defRPr sz="1200" b="1"/></a:pPr><a:r><a:rPr lang="pt-BR" sz="1200" b="1"><a:solidFill><a:srgbClr val="1F3B57"/></a:solidFill></a:rPr><a:t>Falta x Atestado</a:t></a:r></a:p></c:rich></c:tx><c:overlay val="0"/></c:title>
+<c:autoTitleDeleted val="0"/><c:plotArea><c:layout/>
+<c:doughnutChart><c:varyColors val="1"/>
+<c:ser><c:idx val="0"/><c:order val="0"/><c:tx><c:v>Total</c:v></c:tx>
+<c:dPt><c:idx val="0"/><c:bubble3D val="0"/><c:spPr><a:solidFill><a:srgbClr val="D0453A"/></a:solidFill><a:ln w="19050"><a:solidFill><a:srgbClr val="FFFFFF"/></a:solidFill></a:ln></c:spPr></c:dPt>
+<c:dPt><c:idx val="1"/><c:bubble3D val="0"/><c:spPr><a:solidFill><a:srgbClr val="2C74C9"/></a:solidFill><a:ln w="19050"><a:solidFill><a:srgbClr val="FFFFFF"/></a:solidFill></a:ln></c:spPr></c:dPt>
+<c:dLbls><c:numFmt formatCode="0%" sourceLinked="0"/><c:spPr><a:noFill/><a:ln><a:noFill/></a:ln></c:spPr>${txt(1000,true,"FFFFFF")}<c:showLegendKey val="0"/><c:showVal val="0"/><c:showCatName val="0"/><c:showSerName val="0"/><c:showPercent val="1"/><c:showBubbleSize val="0"/><c:showLeaderLines val="0"/></c:dLbls>
+<c:cat><c:strRef><c:f>${S}!$C$1:$D$1</c:f>${strCache(["FALTAS","ATESTADOS"])}</c:strRef></c:cat>
+<c:val><c:numRef><c:f>${S}!$C$${n+2}:$D$${n+2}</c:f>${numCache([nF,nA])}</c:numRef></c:val></c:ser>
+<c:firstSliceAng val="0"/><c:holeSize val="55"/></c:doughnutChart>
+<c:spPr><a:noFill/><a:ln><a:noFill/></a:ln></c:spPr></c:plotArea>
+<c:legend><c:legendPos val="b"/><c:overlay val="0"/>${txt(900,false,"333F4B")}</c:legend><c:plotVisOnly val="1"/></c:chart>
+<c:spPr><a:solidFill><a:srgbClr val="FFFFFF"/></a:solidFill><a:ln w="9525"><a:solidFill><a:srgbClr val="D9DEE5"/></a:solidFill></a:ln></c:spPr>
+</c:chartSpace>`;
+
+  const RK="Ranking", top=ppl.slice(0,topN);
+  const rkCat = `<c:cat><c:strRef><c:f>${RK}!$B$2:$B$${topN+1}</c:f>${strCache(top.map(p=>p.nome))}</c:strRef></c:cat>`;
+  const rkSer = (idx,name,col,color,vals)=>`<c:ser><c:idx val="${idx}"/><c:order val="${idx}"/><c:tx><c:strRef><c:f>${RK}!$${col}$1</c:f>${strCache([name])}</c:strRef></c:tx>
+    <c:spPr><a:solidFill><a:srgbClr val="${color}"/></a:solidFill><a:ln><a:noFill/></a:ln></c:spPr><c:invertIfNegative val="0"/>
+    <c:dLbls><c:numFmt formatCode="0;;;" sourceLinked="0"/><c:spPr><a:noFill/><a:ln><a:noFill/></a:ln></c:spPr>${txt(900,true,"FFFFFF")}<c:dLblPos val="ctr"/><c:showLegendKey val="0"/><c:showVal val="1"/><c:showCatName val="0"/><c:showSerName val="0"/><c:showPercent val="0"/><c:showBubbleSize val="0"/></c:dLbls>
+    ${rkCat}<c:val><c:numRef><c:f>${RK}!$${col}$2:$${col}$${topN+1}</c:f>${numCache(vals)}</c:numRef></c:val></c:ser>`;
+  const rankXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<c:chartSpace xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+<c:roundedCorners val="0"/><c:chart>
+<c:title><c:tx><c:rich><a:bodyPr/><a:lstStyle/><a:p><a:pPr><a:defRPr sz="1400" b="1"/></a:pPr><a:r><a:rPr lang="pt-BR" sz="1400" b="1"><a:solidFill><a:srgbClr val="1F3B57"/></a:solidFill></a:rPr><a:t>Quem mais se destacou: top ${topN} em ABS</a:t></a:r></a:p></c:rich></c:tx><c:overlay val="0"/></c:title>
+<c:autoTitleDeleted val="0"/><c:plotArea><c:layout/>
+<c:barChart><c:barDir val="bar"/><c:grouping val="stacked"/><c:varyColors val="0"/>
+${rkSer(0,"FALTAS","D","D0453A",top.map(p=>p.f))}
+${rkSer(1,"ATESTADOS","E","2C74C9",top.map(p=>p.a))}
+<c:gapWidth val="40"/><c:overlap val="100"/><c:axId val="2001"/><c:axId val="2002"/></c:barChart>
+<c:catAx><c:axId val="2001"/><c:scaling><c:orientation val="maxMin"/></c:scaling><c:delete val="0"/><c:axPos val="l"/><c:numFmt formatCode="General" sourceLinked="0"/><c:majorTickMark val="none"/><c:minorTickMark val="none"/><c:tickLblPos val="nextTo"/><c:spPr><a:ln w="9525"><a:solidFill><a:srgbClr val="BFC7D1"/></a:solidFill></a:ln></c:spPr>${txt(900,false,"333F4B")}<c:crossAx val="2002"/><c:crosses val="autoZero"/><c:auto val="1"/><c:lblAlgn val="ctr"/><c:lblOffset val="100"/><c:noMultiLvlLbl val="0"/></c:catAx>
+<c:valAx><c:axId val="2002"/><c:scaling><c:orientation val="minMax"/></c:scaling><c:delete val="0"/><c:axPos val="t"/><c:majorGridlines><c:spPr><a:ln w="9525"><a:solidFill><a:srgbClr val="E3E8EE"/></a:solidFill></a:ln></c:spPr></c:majorGridlines><c:numFmt formatCode="0" sourceLinked="0"/><c:majorTickMark val="none"/><c:minorTickMark val="none"/><c:tickLblPos val="nextTo"/><c:spPr><a:ln><a:noFill/></a:ln></c:spPr>${txt(800,false,"5D6B78")}<c:crossAx val="2001"/><c:crosses val="max"/><c:crossBetween val="between"/><c:majorUnit val="1"/></c:valAx>
+<c:spPr><a:noFill/><a:ln><a:noFill/></a:ln></c:spPr></c:plotArea>
+<c:legend><c:legendPos val="b"/><c:overlay val="0"/>${txt(900,false,"333F4B")}</c:legend><c:plotVisOnly val="1"/></c:chart>
+<c:spPr><a:solidFill><a:srgbClr val="FFFFFF"/></a:solidFill><a:ln w="9525"><a:solidFill><a:srgbClr val="D9DEE5"/></a:solidFill></a:ln></c:spPr>
+</c:chartSpace>`;
+  const anchor = (rid, id, name, c1, r1, c2, r2) => `<xdr:twoCellAnchor editAs="oneCell"><xdr:from><xdr:col>${c1}</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>${r1}</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:from><xdr:to><xdr:col>${c2}</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>${r2}</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:to>
+<xdr:graphicFrame macro=""><xdr:nvGraphicFramePr><xdr:cNvPr id="${id}" name="${name}"/><xdr:cNvGraphicFramePr/></xdr:nvGraphicFramePr><xdr:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/></xdr:xfrm>
+<a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/chart"><c:chart xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" r:id="${rid}"/></a:graphicData></a:graphic></xdr:graphicFrame><xdr:clientData/></xdr:twoCellAnchor>`;
+  const drawing = (inner) => `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">${inner}</xdr:wsDr>`;
+  const rels = (items) => `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${items.map(([id,type,target])=>`<Relationship Id="${id}" Type="${type}" Target="${target}"/>`).join("")}</Relationships>`;
+  const T_CHART="http://schemas.openxmlformats.org/officeDocument/2006/relationships/chart", T_DRAW="http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing";
+
+  zip.file("xl/charts/chart1.xml", chartXml);   // combo na Planilha1
+  zip.file("xl/charts/chart2.xml", chartXml);   // mesmo combo no Resumo
+  zip.file("xl/charts/chart3.xml", pieXml);     // rosca no Resumo
+  // Planilha1: gráfico ao lado do quadro de totais (H8 → T30)
+  zip.file("xl/drawings/drawing1.xml", drawing(anchor("rId1",2,"Grafico ABS",7,8,20,30)));
+  zip.file("xl/drawings/_rels/drawing1.xml.rels", rels([["rId1",T_CHART,"../charts/chart1.xml"]]));
+  // Resumo: combo + rosca à direita da tabela
+  zip.file("xl/drawings/drawing2.xml", drawing(anchor("rId1",2,"Grafico ABS",8,0,21,22)+anchor("rId2",3,"Falta x Atestado",21,0,27,22)));
+  zip.file("xl/drawings/_rels/drawing2.xml.rels", rels([["rId1",T_CHART,"../charts/chart2.xml"],["rId2",T_CHART,"../charts/chart3.xml"]]));
+
+  zip.file("xl/charts/chart4.xml", rankXml);
+  zip.file("xl/drawings/drawing3.xml", drawing(anchor("rId1",2,"Ranking ABS",8,0,20,Math.max(18, topN*2+4))));
+  zip.file("xl/drawings/_rels/drawing3.xml.rels", rels([["rId1",T_CHART,"../charts/chart4.xml"]]));
+  for (const [i,dr] of [[1,"drawing1"],[2,"drawing2"],[3,"drawing3"]]){
+    const p=`xl/worksheets/sheet${i}.xml`; let x=await zip.file(p).async("string");
+    if(!/xmlns:r=/.test(x)) x=x.replace("<worksheet ",'<worksheet xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" ');
+    const tag=`<drawing r:id="rIdChartDr"/>`;
+    const m=x.match(/<(legacyDrawing|legacyDrawingHF|picture|oleObjects|controls|webPublishItems|tableParts|extLst)[\s>\/]/);
+    x = m ? x.slice(0,m.index)+tag+x.slice(m.index) : x.replace("</worksheet>",tag+"</worksheet>");
+    zip.file(p,x);
+    const rp=`xl/worksheets/_rels/sheet${i}.xml.rels`; const f=zip.file(rp);
+    const relItem=`<Relationship Id="rIdChartDr" Type="${T_DRAW}" Target="../drawings/${dr}.xml"/>`;
+    if(f){ zip.file(rp,(await f.async("string")).replace("</Relationships>",relItem+"</Relationships>")); }
+    else zip.file(rp,rels([["rIdChartDr",T_DRAW,`../drawings/${dr}.xml`]]));
+  }
+  let ct=await zip.file("[Content_Types].xml").async("string");
+  const ov = (part,type)=>`<Override PartName="${part}" ContentType="${type}"/>`;
+  const CT_CH="application/vnd.openxmlformats-officedocument.drawingml.chart+xml", CT_DR="application/vnd.openxmlformats-officedocument.drawing+xml";
+  ct = ct.replace("</Types>", ov("/xl/charts/chart1.xml",CT_CH)+ov("/xl/charts/chart2.xml",CT_CH)+ov("/xl/charts/chart3.xml",CT_CH)+ov("/xl/charts/chart4.xml",CT_CH)+ov("/xl/drawings/drawing3.xml",CT_DR)+ov("/xl/drawings/drawing1.xml",CT_DR)+ov("/xl/drawings/drawing2.xml",CT_DR)+"</Types>");
+  zip.file("[Content_Types].xml", ct);
+  return await zip.generateAsync({type:"arraybuffer", compression:"DEFLATE"});
+}
+
+
+async function exportOrig(fa,fb){
   const src = fa ? DATA.filter(r=>r.d>=fa && r.d<=fb) : filtered();
   if(!src.length){ toast("Nenhum registro nesse período"); return; }
-  const rows=src.sort((x,y)=>x.d<y.d?-1:x.d>y.d?1:x.nome.localeCompare(y.nome,"pt-BR"));
-  const aoa=[["GROO ID","NOME","MATRICULA","CARGO","DATA AUSENCIA","TIPO DE FALTA"]];
-  let cur=null,c=0;
-  const flush=()=>{ if(cur){ aoa.push(["","","","","",`TOTAL ${c}`]); } };
-  rows.forEach(r=>{ if(r.d!==cur){ flush(); cur=r.d; c=0; } const dt=parseKey(r.d); aoa.push([r.id,r.nome,r.mat,r.cargo,new Date(dt.getUTCFullYear(),dt.getUTCMonth(),dt.getUTCDate()),r.tipo]); c++; });
-  flush();
-  const ws=XLSX.utils.aoa_to_sheet(aoa,{cellDates:true,dateNF:"dd/mm/yyyy"});
-  const n=aoa.length;
-  XLSX.utils.sheet_add_aoa(ws,[["TOTAL FALTA",{f:`COUNTIF(F2:F${n},"FALTA")`}],["TOTAL ATESTADO",{f:`COUNTIF(F2:F${n},"ATESTADO")`}],["TOTAL DE ABS",{f:"L4+L5"}]],{origin:"K4"});
-  for(let i=2;i<=n;i++){ const c=ws["E"+i]; if(c && c.t==="d"){ c.z="dd/mm/yyyy"; } }
-  ws["!cols"]=[{wch:10},{wch:42},{wch:10},{wch:22},{wch:14},{wch:14},{},{},{},{},{wch:16},{wch:8}];
-  const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,"Planilha1");
-  const b = fb || range()[1];
-  const nome = fa && fa===fb ? `FALTA ${br(fa).replace(/\//g,".")}.xlsx` : `FALTA FATURA ${br(b).replace(/\//g,".")}.xlsx`;
-  XLSX.writeFile(wb,nome,{cellDates:true}); toast(`${nome} gerado (${rows.length} registros)`);
+  if(typeof ExcelJS==="undefined"||typeof JSZip==="undefined"){ toast("Bibliotecas de Excel não carregaram. Verifique a internet."); return; }
+  const [ra,rb] = fa ? [fa,fb] : range();
+  const cs = cycleStart(ra), ce = cycleEnd(cs);
+  const unico = fa && fa===fb;
+  const titulo = unico ? `ABS ${br(fa)} (${WD[wdOf(fa)]})` : `FATURA ${brShort(ra)} → ${br(rb)}`;
+  toast("Gerando planilha…");
+  try{
+    const buf = await buildFaturaXlsx(ExcelJS, JSZip, src, {title:titulo, chartTitle: unico ? `Ausências em ${br(fa)}` : `Faltas e Atestados por dia · ${brShort(ra)} a ${br(rb)}`});
+    const nome = unico ? `FALTA ${br(fa).replace(/\//g,".")}.xlsx` : `FALTA FATURA ${br(rb).replace(/\//g,".")}.xlsx`;
+    const url = URL.createObjectURL(new Blob([buf],{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}));
+    const a = document.createElement("a"); a.href=url; a.download=nome; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url),4000);
+    toast(`${nome} gerado (${src.length} registros)`);
+  }catch(e){ console.error(e); toast("Erro ao gerar: "+e.message); }
 }
 function exportCsv(){
   const rows=filtered().sort((x,y)=>x.d<y.d?-1:1);
