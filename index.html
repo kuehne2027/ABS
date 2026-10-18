@@ -1,0 +1,1055 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Faltas e Atestados KN</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Barlow+Condensed:wght@500;600;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+/* Layout: barra de comando fixa no topo + abas (Dia / Ciclo / Colaboradores / Registros); conteúdo em grid que vira 1 coluna no celular */
+:root{
+  --bg:#f3f5f7; --panel:#ffffff; --ink:#15202b; --muted:#5d6b78; --line:#dde3e9; --soft:#eaeef2;
+  --accent:#0b5a8a; --accent-ink:#ffffff;
+  --falta:#d0453a; --falta-soft:#fbe6e3; --atest:#2c74c9; --atest-soft:#e2edfa; --outro:#8a94a0;
+  --ok:#22865a; --warn:#b7791f;
+  --f-display:"Barlow Condensed","Arial Narrow",system-ui,sans-serif;
+  --f-body:"Barlow",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"JetBrains Mono",ui-monospace,Consolas,monospace;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0f161d; --panel:#16202a; --ink:#e6edf3; --muted:#93a3b2; --line:#263442; --soft:#1c2834;
+  --accent:#4aa3dd; --accent-ink:#06121b;
+  --falta:#ef6a5f; --falta-soft:#3a1f1d; --atest:#5d9cf0; --atest-soft:#1a2b42; --outro:#7d8894;
+  --ok:#3dbb82; --warn:#e0a84a; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0f161d; --panel:#16202a; --ink:#e6edf3; --muted:#93a3b2; --line:#263442; --soft:#1c2834;
+  --accent:#4aa3dd; --accent-ink:#06121b;
+  --falta:#ef6a5f; --falta-soft:#3a1f1d; --atest:#5d9cf0; --atest-soft:#1a2b42; --outro:#7d8894;
+  --ok:#3dbb82; --warn:#e0a84a; color-scheme:dark}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:15px;line-height:1.45}
+[hidden]{display:none!important}
+.wrap{max-width:1240px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+header.top{background:var(--panel);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:20}
+.top .wrap{display:flex;flex-wrap:wrap;align-items:center;gap:10px 16px;padding-block:12px}
+.brand{display:flex;flex-direction:column;min-width:0;margin-right:auto}
+.brand h1{font-family:var(--f-display);font-weight:700;font-size:26px;letter-spacing:.01em;margin:0;line-height:1}
+.brand .src{font-size:12.5px;color:var(--muted);margin-top:4px}
+.brand .src .dot{margin-right:6px;vertical-align:1px}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--outro);display:inline-block}
+.dot.live{background:var(--ok)} .dot.file{background:var(--accent)} .dot.err{background:var(--falta)}
+.actions{display:flex;flex-wrap:wrap;gap:8px}
+button,.btn{font:inherit;font-weight:600;font-size:14px;border:1px solid var(--line);background:var(--panel);color:var(--ink);padding:8px 12px;border-radius:8px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+button:hover{border-color:var(--accent)}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+button.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+button.ghost{border-color:transparent;background:transparent}
+.menu{position:relative}
+.menu-list{position:absolute;right:0;top:calc(100% + 6px);background:var(--panel);border:1px solid var(--line);border-radius:10px;box-shadow:0 10px 30px rgba(0,0,0,.15);padding:6px;min-width:240px;z-index:30;display:flex;flex-direction:column}
+.menu-list button{border:0;justify-content:flex-start;width:100%;font-weight:500}
+.menu-list button small{color:var(--muted);font-weight:400;margin-left:auto}
+.bar{display:flex;flex-wrap:wrap;gap:10px;align-items:end;padding-block:14px}
+.field{display:flex;flex-direction:column;gap:4px;min-width:0}
+.field label{font-size:11.5px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:600}
+select,input[type=date],input[type=text],input[type=url],input[type=search]{font:inherit;font-size:14px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--ink);min-width:0}
+.tabs{display:flex;gap:2px;border-bottom:1px solid var(--line);overflow-x:auto}
+.tabs button{border:0;border-bottom:3px solid transparent;border-radius:0;background:transparent;padding:10px 14px;color:var(--muted);font-family:var(--f-display);font-size:18px;letter-spacing:.02em}
+.tabs button[aria-selected=true]{color:var(--ink);border-bottom-color:var(--accent)}
+main{padding-block:18px 40px}
+.grid{display:grid;gap:14px}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
+.kpis .kpi:last-child:nth-child(odd){grid-column:1/-1}
+@media (min-width:700px){.kpis .kpi:last-child:nth-child(odd){grid-column:auto}}
+.kpi{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px;min-width:0}
+.kpi .l{font-size:11.5px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:600}
+.kpi .v{font-family:var(--f-display);font-weight:700;font-size:38px;line-height:1.05;font-variant-numeric:tabular-nums}
+.kpi .s{font-size:12.5px;color:var(--muted)}
+.kpi.falta .v{color:var(--falta)} .kpi.atest .v{color:var(--atest)}
+.up{color:var(--falta);font-weight:600} .down{color:var(--ok);font-weight:600}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px;min-width:0}
+.card h2{font-family:var(--f-display);font-weight:600;font-size:20px;margin:0 0 2px;text-wrap:balance}
+.card .sub{color:var(--muted);font-size:13px;margin:0 0 10px}
+.two{display:grid;grid-template-columns:1.3fr 1fr;gap:14px}
+@media (max-width:860px){.two{grid-template-columns:1fr}}
+.scroll{overflow-x:auto}
+svg text{fill:var(--muted);font-family:var(--f-body);font-size:11px}
+svg .val{fill:var(--ink);font-weight:600}
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:13px;color:var(--muted);margin-bottom:6px}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th{font-size:11.5px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);text-align:left;font-weight:600;padding:8px;border-bottom:1px solid var(--line);white-space:nowrap;cursor:default}
+th.sort{cursor:pointer} th.sort:hover{color:var(--ink)}
+td{padding:7px 8px;border-bottom:1px solid var(--soft);vertical-align:middle}
+td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
+td.mono{font-family:var(--f-mono);font-size:12.5px;color:var(--muted)}
+tr.click{cursor:pointer} tr.click:hover td{background:var(--soft)}
+.pill{display:inline-block;font-size:11.5px;font-weight:700;letter-spacing:.05em;padding:2px 8px;border-radius:999px;white-space:nowrap}
+.pill.FALTA{background:var(--falta-soft);color:var(--falta)}
+.pill.ATESTADO{background:var(--atest-soft);color:var(--atest)}
+.pill.OUTRO{background:var(--soft);color:var(--muted)}
+.badge{font-family:var(--f-mono);font-size:11.5px;padding:1px 6px;border-radius:5px;background:var(--soft);color:var(--muted);white-space:nowrap}
+.badge.hot{background:var(--falta-soft);color:var(--falta);font-weight:600}
+.daynav{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.daynav .big{font-family:var(--f-display);font-size:30px;font-weight:700;line-height:1}
+.daynav .wd{color:var(--muted);font-size:14px;text-transform:capitalize}
+.namelist{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:6px 14px}
+.namerow{display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--soft);min-width:0}
+.namerow .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-transform:capitalize}
+.hbar{display:flex;height:10px;border-radius:3px;overflow:hidden;background:var(--soft);min-width:60px}
+.hbar span{display:block;height:100%}
+.strip{display:flex;gap:2px}
+.strip i{width:7px;height:14px;border-radius:2px;background:var(--soft);display:block}
+.strip i.F{background:var(--falta)} .strip i.A{background:var(--atest)} .strip i.O{background:var(--outro)}
+.empty{padding:30px;text-align:center;color:var(--muted)}
+.note{font-size:13px;color:var(--muted)}
+.toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:10px;font-weight:600;z-index:50;max-width:calc(100% - 32px)}
+dialog{border:1px solid var(--line);border-radius:14px;background:var(--panel);color:var(--ink);padding:0;width:min(640px,calc(100% - 32px))}
+dialog::backdrop{background:rgba(5,12,20,.5)}
+.dlg{padding:18px 20px;display:grid;gap:12px}
+.dlg h3{font-family:var(--f-display);font-size:22px;margin:0}
+.dlg ol{margin:0;padding-left:20px;color:var(--muted);font-size:14px}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.row > input{flex:1}
+textarea{width:100%;min-height:220px;font-family:var(--f-mono);font-size:12.5px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink);padding:10px}
+.drop{border:2px dashed var(--line);border-radius:12px;padding:22px;text-align:center;color:var(--muted)}
+.drop.over{border-color:var(--accent);color:var(--ink)}
+.dist{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.dist div{background:var(--soft);border-radius:10px;padding:10px;text-align:center}
+.dist b{display:block;font-family:var(--f-display);font-size:28px;font-variant-numeric:tabular-nums}
+.dist span{font-size:12px;color:var(--muted)}
+#printReport{display:none}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:9px;overflow:hidden}
+.seg button{border:0;border-radius:0;padding:8px 14px}
+.seg button[aria-pressed=true].F{background:var(--falta);color:#fff}
+.seg button[aria-pressed=true].A{background:var(--atest);color:#fff}
+.idin{font-family:var(--f-mono)!important;font-size:18px!important;padding:12px 14px!important;flex:1}
+select.tsel{font-weight:700;font-size:13px;padding:6px 8px;border-radius:8px}
+select.tsel.FALTA{background:var(--falta-soft);color:var(--falta);border-color:transparent}
+select.tsel.ATESTADO{background:var(--atest-soft);color:var(--atest);border-color:transparent}
+.status{font-size:12.5px;font-weight:700;padding:4px 10px;border-radius:999px;white-space:nowrap}
+.status.ok{background:color-mix(in srgb,var(--ok) 15%,transparent);color:var(--ok)}
+.status.pend{background:color-mix(in srgb,var(--warn) 18%,transparent);color:var(--warn)}
+.cal{display:flex;flex-wrap:wrap;gap:4px}
+.cal button{flex-direction:column;gap:0;padding:4px 0;width:38px;font-size:12px;line-height:1.15;border-radius:7px}
+.cal button b{font-size:13px}
+.cal button small{font-size:10.5px;color:var(--muted);font-weight:500}
+.cal .ok{border-color:var(--ok);background:color-mix(in srgb,var(--ok) 12%,transparent)}
+.cal .pend{border-color:var(--warn);background:color-mix(in srgb,var(--warn) 14%,transparent)}
+.cal .fut{opacity:.45}
+.cal .cur{outline:2px solid var(--accent);outline-offset:1px}
+.sugg{display:flex;flex-wrap:wrap;gap:6px}
+.sugg button{font-weight:500;text-transform:capitalize}
+.warnbox{background:color-mix(in srgb,var(--warn) 12%,transparent);border:1px solid color-mix(in srgb,var(--warn) 40%,transparent);border-radius:10px;padding:10px 12px;display:grid;gap:8px}
+.mini{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.mini div{background:var(--soft);border-radius:10px;padding:8px 10px}
+.mini b{display:block;font-family:var(--f-display);font-size:30px;line-height:1.1;font-variant-numeric:tabular-nums}
+.mini span{font-size:11.5px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);font-weight:600}
+.del{border:0;background:transparent;color:var(--muted);padding:4px 8px;font-size:16px}
+.del:hover{color:var(--falta)}
+@media (max-width:560px){.kpi .v{font-size:32px}.brand h1{font-size:22px}}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+@media print{
+  @page{size:A4;margin:12mm}
+  :root{--bg:#fff;--panel:#fff;--ink:#111;--muted:#555;--line:#ccc;--soft:#eee;color-scheme:light}
+  body{font-size:11px}
+  header.top,.bar,.tabs,main,.toast,dialog{display:none!important}
+  #printReport{display:block}
+  #printReport h1{font-family:var(--f-display);font-size:22px;margin:0 0 2px}
+  #printReport h2{font-family:var(--f-display);font-size:15px;margin:14px 0 6px}
+  #printReport .kpis{grid-template-columns:repeat(6,1fr)}
+  #printReport .kpi .v{font-size:24px}
+  #printReport table{font-size:10px} #printReport td,#printReport th{padding:3px 5px}
+  .pb{break-inside:avoid}
+}
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="wrap">
+    <div class="brand">
+      <h1>Faltas e Atestados</h1>
+      <div class="src"><span class="dot" id="srcDot"></span><span id="srcText">Carregando…</span></div>
+    </div>
+    <div class="actions">
+      <button id="btnImport" title="Importar planilha .xlsx ou .csv">Importar planilha</button>
+      <button id="btnSheet" title="Ligar com Google Sheets">Ligar Google Sheets</button>
+      <button id="btnRefresh" hidden title="Buscar dados da planilha agora">Atualizar</button>
+      <div class="menu">
+        <button class="primary" id="btnExport" aria-haspopup="true" aria-expanded="false">Exportar ▾</button>
+        <div class="menu-list" id="exportMenu" hidden>
+          <button data-exp="xlsx">Excel completo <small>.xlsx</small></button>
+          <button data-exp="orig">Excel no formato da fatura <small>.xlsx</small></button>
+          <button data-exp="pdf">Relatório PDF <small>imprimir</small></button>
+          <button data-exp="csv">Registros <small>.csv</small></button>
+          <button data-exp="wpp">Resumo do dia p/ WhatsApp <small>texto</small></button>
+        </div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+  <div class="bar">
+    <div class="field"><label for="cycleSel">Período</label>
+      <select id="cycleSel"></select></div>
+    <div class="field" id="customWrap" hidden style="flex-direction:row;gap:8px">
+      <div class="field"><label for="dFrom">De</label><input type="date" id="dFrom"></div>
+      <div class="field"><label for="dTo">Até</label><input type="date" id="dTo"></div>
+    </div>
+    <div class="field"><label for="tipoSel">Tipo</label>
+      <select id="tipoSel"><option value="">Todos</option></select></div>
+    <div class="field"><label for="cargoSel">Cargo</label>
+      <select id="cargoSel"><option value="">Todos</option></select></div>
+  </div>
+  <nav class="tabs" role="tablist">
+    <button role="tab" data-tab="lanc" aria-selected="true">Lançar ABS</button>
+    <button role="tab" data-tab="dia" aria-selected="false">Dia</button>
+    <button role="tab" data-tab="ciclo" aria-selected="false">Ciclo</button>
+    <button role="tab" data-tab="pess" aria-selected="false">Colaboradores</button>
+    <button role="tab" data-tab="reg" aria-selected="false">Registros</button>
+  </nav>
+</div>
+
+<main class="wrap">
+  <!-- LANÇAR -->
+  <section id="tab-lanc" class="grid">
+    <div class="card">
+      <div class="row" style="justify-content:space-between">
+        <div class="daynav">
+          <button id="lPrev" aria-label="Dia anterior">‹</button>
+          <div><div class="big" id="lBig">--/--</div><div class="wd" id="lWd"></div></div>
+          <button id="lNext" aria-label="Próximo dia">›</button>
+          <input type="date" id="lPick" aria-label="Data da ausência">
+          <button class="ghost" id="lToday">Hoje</button>
+          <span class="status pend" id="lStatus">Pendente</span>
+        </div>
+        <div class="row note">Base: <b id="baseCount">0</b> colaboradores <button id="btnBase">Importar lista de colaboradores</button></div>
+      </div>
+    </div>
+    <div class="two">
+      <div class="card">
+        <h2>Adicionar ausência</h2>
+        <p class="sub">Escolha a data no topo, marque FALTA ou ATESTADO e cole os IDs (um por linha, direto da coluna do Excel). Depois ajuste cada pessoa na seta da lista.</p>
+        <div class="grid" style="gap:10px">
+          <div class="row"><span class="note">Lançar como</span>
+            <div class="seg" id="lTipo"><button class="F" data-t="FALTA" aria-pressed="true">FALTA</button><button class="A" data-t="ATESTADO" aria-pressed="false">ATESTADO</button></div>
+          </div>
+          <label for="lId" style="font-weight:700">Cole ou digite os Groot IDs aqui</label>
+          <textarea id="lId" class="idin" rows="4" placeholder="Ex.:&#10;2613464&#10;2613451&#10;2500196&#10;(ou digite um nome para buscar)" autocomplete="off" style="min-height:120px;resize:vertical;width:100%"></textarea>
+          <div class="row" style="justify-content:space-between"><span class="note">Enter lança · Shift+Enter pula linha</span><button class="primary" id="lAdd">Lançar no dia</button></div>
+          <div id="lMsg"></div>
+        </div>
+      </div>
+      <div class="card grid" style="gap:12px;align-content:start">
+        <div class="mini"><div><span>Faltas</span><b id="lF" style="color:var(--falta)">0</b></div><div><span>Atestados</span><b id="lA" style="color:var(--atest)">0</b></div><div><span>Total ABS</span><b id="lT">0</b></div></div>
+        <div class="row">
+          <button class="primary" id="lValid">Validar dia</button>
+          <button id="lWpp">Resumo WhatsApp</button>
+        </div>
+        <div class="row">
+          <button id="lExpDay">Exportar este dia</button>
+          <button id="lExpCyc">Exportar fatura do ciclo</button>
+        </div>
+        <div><div class="note" id="lCycLab" style="margin-bottom:6px"></div><div class="cal" id="lCal"></div>
+        <p class="note" style="margin:6px 0 0"><span class="status ok">verde</span> validado · <span class="status pend">amarelo</span> com lançamento, falta validar</p></div>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Lista do dia <span class="badge" id="lCount">0</span></h2>
+      <p class="sub">Use a seta para trocar entre Falta e Atestado. O total do dia é recalculado na hora.</p>
+      <div class="scroll" id="lTable"></div>
+    </div>
+  </section>
+
+  <!-- DIA -->
+  <section id="tab-dia" class="grid" hidden>
+    <div class="card">
+      <div class="row" style="justify-content:space-between">
+        <div class="daynav">
+          <button id="prevDay" aria-label="Dia anterior">‹</button>
+          <div><div class="big" id="dayBig">--/--</div><div class="wd" id="dayWd"></div></div>
+          <button id="nextDay" aria-label="Próximo dia">›</button>
+          <input type="date" id="dayPick" aria-label="Escolher data">
+          <button class="ghost" id="lastDay">Último dia com registro</button>
+        </div>
+        <button id="dayWpp">Copiar resumo WhatsApp</button>
+      </div>
+    </div>
+    <div class="kpis" id="dayKpis"></div>
+    <div class="two">
+      <div class="card"><h2>Quem faltou</h2><p class="sub" id="daySub"></p><div id="dayList"></div></div>
+      <div class="card"><h2>Últimos 14 dias</h2><p class="sub">Clique numa barra para abrir o dia.</p><div class="scroll" id="day14"></div></div>
+    </div>
+  </section>
+
+  <!-- CICLO -->
+  <section id="tab-ciclo" class="grid" hidden>
+    <div class="kpis" id="cycKpis"></div>
+    <div class="card">
+      <h2>Ausências por dia</h2>
+      <div class="legend"><span><i style="background:var(--falta)"></i>Falta</span><span><i style="background:var(--atest)"></i>Atestado</span><span><i style="background:var(--outro)"></i>Outros</span><span>– – média do período</span></div>
+      <div class="scroll" id="cycChart"></div>
+    </div>
+    <div class="two">
+      <div class="card"><h2>Mais ausências no período</h2><p class="sub">Top 15. Clique para ver o histórico.</p><div class="scroll" id="cycTop"></div></div>
+      <div class="grid">
+        <div class="card"><h2>Por dia da semana</h2><p class="sub">Soma do período</p><div id="cycWd"></div></div>
+        <div class="card"><h2>Reincidência</h2><p class="sub">Pessoas por quantidade de ausências</p><div class="dist" id="cycDist"></div><p class="note" id="cycConc" style="margin:10px 0 0"></p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- COLABORADORES -->
+  <section id="tab-pess" class="grid" hidden>
+    <div class="card">
+      <div class="row" style="justify-content:space-between;margin-bottom:8px">
+        <h2 style="margin:0">Colaboradores com ausência</h2>
+        <input type="search" id="pessQ" placeholder="Buscar nome, Groot ID ou matrícula" style="max-width:320px;flex:1">
+      </div>
+      <div class="scroll" id="pessTable"></div>
+    </div>
+  </section>
+
+  <!-- REGISTROS -->
+  <section id="tab-reg" class="grid" hidden>
+    <div class="card">
+      <div class="row" style="justify-content:space-between;margin-bottom:8px">
+        <h2 style="margin:0">Registros <span class="badge" id="regCount"></span></h2>
+        <input type="search" id="regQ" placeholder="Buscar" style="max-width:320px;flex:1">
+      </div>
+      <div class="scroll" id="regTable"></div>
+    </div>
+  </section>
+</main>
+
+<div id="printReport"></div>
+
+<!-- Importar -->
+<dialog id="dlgImport"><div class="dlg">
+  <h3>Importar planilha</h3>
+  <p class="note" style="margin:0">Planilha de faltas (.xlsx/.csv com GROO ID, NOME, MATRICULA, CARGO, DATA AUSENCIA e TIPO DE FALTA) ou a lista de colaboradores (Headcount GRUPOS). O app reconhece qual é pelo cabeçalho.</p>
+  <div class="drop" id="drop">Arraste o arquivo aqui ou <button id="pickFile" type="button">escolha o arquivo</button></div>
+  <input type="file" id="fileIn" accept=".xlsx,.xls,.csv" hidden>
+  <div class="field"><label for="impMode">Ao importar</label>
+    <select id="impMode"><option value="replace">Substituir os dados atuais</option><option value="merge">Juntar com os atuais (sem duplicar)</option></select></div>
+  <div class="row" style="justify-content:flex-end"><button id="impClose" type="button">Fechar</button></div>
+</div></dialog>
+
+<!-- Base de colaboradores -->
+<dialog id="dlgBase"><div class="dlg">
+  <h3>Lista de colaboradores</h3>
+  <p class="note" style="margin:0">Importe a lista total de colaboradores (.xlsx ou .csv) com as colunas GROO ID, NOME, MATRICULA e CARGO. É dela que o app puxa os dados quando você digita o Groot ID.</p>
+  <p class="note" style="margin:0" id="baseInfo"></p>
+  <div class="drop" id="dropBase">Arraste o arquivo aqui ou <button id="pickBase" type="button">escolha o arquivo</button></div>
+  <input type="file" id="baseIn" accept=".xlsx,.xls,.csv" hidden>
+  <div class="field"><label for="baseMode">Ao importar</label>
+    <select id="baseMode"><option value="replace">Substituir a lista atual</option><option value="merge">Juntar com a lista atual (atualiza quem já existe)</option></select></div>
+  <div class="row" style="justify-content:space-between"><button id="baseExp" type="button" class="ghost">Baixar lista atual</button><button id="baseClose" type="button">Fechar</button></div>
+</div></dialog>
+
+<!-- Google Sheets -->
+<dialog id="dlgSheet"><div class="dlg">
+  <h3>Ligar com Google Sheets</h3>
+  <ol>
+    <li>Na planilha, clique em <b>Compartilhar</b> → "Qualquer pessoa com o link" → <b>Leitor</b>. Ou use <b>Arquivo → Compartilhar → Publicar na Web</b> (formato CSV).</li>
+    <li>Abra a aba com os registros e copie o link do navegador (ele contém <span class="badge">gid=</span>, que indica a aba).</li>
+    <li>Cole abaixo. O app busca os dados sempre que abrir e no intervalo escolhido.</li>
+  </ol>
+  <div class="field"><label for="sheetUrl">Link da planilha</label>
+    <input type="url" id="sheetUrl" placeholder="https://docs.google.com/spreadsheets/d/…/edit#gid=0"></div>
+  <div class="field"><label for="sheetEvery">Atualizar automaticamente</label>
+    <select id="sheetEvery"><option value="0">Só ao abrir / botão Atualizar</option><option value="2">A cada 2 min</option><option value="5" selected>A cada 5 min</option><option value="15">A cada 15 min</option></select></div>
+  <p class="note" id="sheetMsg" style="margin:0"></p>
+  <div class="row" style="justify-content:space-between">
+    <button id="sheetOff" type="button" class="ghost">Desligar planilha</button>
+    <div class="row"><button id="sheetClose" type="button">Fechar</button><button id="sheetGo" type="button" class="primary">Conectar</button></div>
+  </div>
+</div></dialog>
+
+<!-- Pessoa -->
+<dialog id="dlgPerson"><div class="dlg" id="personBody"></div></dialog>
+
+<!-- WhatsApp -->
+<dialog id="dlgWpp"><div class="dlg">
+  <h3>Resumo para WhatsApp</h3>
+  <textarea id="wppText" readonly></textarea>
+  <div class="row" style="justify-content:flex-end">
+    <button id="wppClose" type="button">Fechar</button>
+    <a class="btn" id="wppOpen" target="_blank" rel="noopener">Abrir no WhatsApp</a>
+    <button id="wppCopy" type="button" class="primary">Copiar texto</button>
+  </div>
+</div></dialog>
+
+<div class="toast" id="toast" hidden></div>
+
+<script>
+/* ===== Dados embutidos: FALTA FATURA 15.10.2026 ===== */
+const SEED = [[2613464,"Aline do Carmo Olivera",38317,"AUXILIAR LOGISTICO I","2026-09-16","FALTA"],[2613451,"Joana Dias Salomão Santos do Nascimento",38184,"AUXILIAR LOGISTICO I","2026-09-16","FALTA"],[2500196,"Karina da Silva Gouvêa",38179,"AUXILIAR LOGISTICO I","2026-09-16","FALTA"],[2613733,"KEROLAYNNE BEATRYZ FERREIRA DE LIMA",38224,"AUXILIAR LOGISTICO I","2026-09-16","FALTA"],[2613765,"Maria Eduarda Ferreira Almeida da Silva",38689,"AUXILIAR LOGISTICO I","2026-09-16","ATESTADO"],[2663169,"SARAH FIGUEIRA LIMA",41764,"AUXILIAR LOGISTICO I","2026-09-16","FALTA"],[2646837,"TAINARA RIBEIRO DA PAIXAO",40254,"AUXILIAR LOGISTICO I","2026-09-16","ATESTADO"],[2177932,"Thaina Morais De Souza Paulo",40538,"AUXILIAR LOGISTICO I","2026-09-16","ATESTADO"],[2303646,"Wendel Pereira Gonçalves",39459,"AUXILIAR LOGISTICO I","2026-09-16","FALTA"],[2613743,"Yuri Jimenes leitão",38234,"AUXILIAR LOGISTICO I","2026-09-16","ATESTADO"],[2202647,"Zoraide Juscelina da Costa",38187,"AUXILIAR LOGISTICO I","2026-09-16","ATESTADO"],[1902807,"Breno Martins Theodoro da Silva",38181,"AUXILIAR LOGISTICO I","2026-09-17","ATESTADO"],[2613738,"CLAUDIA MARIA DE OLIVEIRA DE ALMEIDA SANTOS",38263,"AUXILIAR LOGISTICO I","2026-09-17","ATESTADO"],[2550382,"Euzilene vieira costa",38254,"AUXILIAR LOGISTICO I","2026-09-17","FALTA"],[2500200,"Juliana de Souza Matheus",38875,"AUXILIAR LOGISTICO I","2026-09-17","ATESTADO"],[2109434,"Kauane da Silva Francisco Sousa de Sena",38673,"AUXILIAR LOGISTICO I","2026-09-17","FALTA"],[2202430,"Larissa Rodrigues Leoncio da Silva",38756,"AUXILIAR LOGISTICO I","2026-09-17","FALTA"],[2550417,"Luiz Diogo Mairink",38169,"AUXILIAR LOGISTICO I","2026-09-17","FALTA"],[2613765,"Maria Eduarda Ferreira Almeida da Silva",38689,"AUXILIAR LOGISTICO I","2026-09-17","ATESTADO"],[2613817,"Maria Eduarda Rezende geraldelle",38627,"AUXILIAR LOGISTICO I","2026-09-17","FALTA"],[2503272,"mario alberto vieira junior",38728,"AUXILIAR LOGISTICO I","2026-09-17","FALTA"],[2339745,"Samuel Oliveira da silva",38202,"AUXILIAR LOGISTICO I","2026-09-17","ATESTADO"],[2663169,"SARAH FIGUEIRA LIMA",41764,"AUXILIAR LOGISTICO I","2026-09-17","FALTA"],[2631595,"Thaciane Oazem Custódio",39444,"AUXILIAR LOGISTICO I","2026-09-17","ATESTADO"],[2177932,"Thaina Morais De Souza Paulo",40538,"AUXILIAR LOGISTICO I","2026-09-17","ATESTADO"],[2613743,"Yuri Jimenes leitão",38234,"AUXILIAR LOGISTICO I","2026-09-17","FALTA"],[2629218,"Bruna Caroline Mendonça sponton",39446,"AUXILIAR LOGISTICO I","2026-09-18","FALTA"],[2613459,"Caio Carvalho De Lima",38375,"AUXILIAR LOGISTICO I","2026-09-18","ATESTADO"],[2613829,"Dandara Nascimento André",38706,"AUXILIAR LOGISTICO I","2026-09-18","FALTA"],[1729941,"Douglas Ferreira Anjos",38841,"AUXILIAR LOGISTICO I","2026-09-18","ATESTADO"],[2613451,"Joana Dias Salomão Santos do Nascimento",38184,"AUXILIAR LOGISTICO I","2026-09-18","FALTA"],[2177223,"Júlia Célia Moura Da Silva",38306,"AUXILIAR LOGISTICO I","2026-09-18","ATESTADO"],[2462938,"Juliane Silva Gouvea",38301,"AUXILIAR LOGISTICO I","2026-09-18","ATESTADO"],[2155614,"Kaique Victorio Dos Santos",39053,"AUXILIAR LOGISTICO I","2026-09-18","ATESTADO"],[2500196,"Karina da Silva Gouvêa",38179,"AUXILIAR LOGISTICO I","2026-09-18","FALTA"],[2613733,"KEROLAYNNE BEATRYZ FERREIRA DE LIMA",38224,"AUXILIAR LOGISTICO I","2026-09-18","ATESTADO"],[2550417,"Luiz Diogo Mairink",38169,"AUXILIAR LOGISTICO I","2026-09-18","FALTA"],[2663169,"SARAH FIGUEIRA LIMA",41764,"AUXILIAR LOGISTICO I","2026-09-18","FALTA"],[2315986,"Tania Regina de Paula",38284,"AUXILIAR LOGISTICO I","2026-09-18","ATESTADO"],[2303646,"Wendel Pereira Gonçalves",39459,"AUXILIAR LOGISTICO I","2026-09-18","FALTA"],[2550358,"Amanda faria Machado Camilo",38503,"AUXILIAR LOGISTICO I","2026-09-19","FALTA"],[265236,"Ana beatriz da Silva",38280,"AUXILIAR LOGISTICO I","2026-09-19","ATESTADO"],[2579647,"Fábio Alves de Farias",38845,"AUXILIAR LOGISTICO I","2026-09-19","FALTA"],[2555924,"Fúlvio Heleno Sanches de Lima",38189,"AUXILIAR LOGISTICO I","2026-09-19","ATESTADO"],[2613451,"Joana Dias Salomão Santos do Nascimento",38184,"AUXILIAR LOGISTICO I","2026-09-19","FALTA"],[2500196,"Karina da Silva Gouvêa",38179,"AUXILIAR LOGISTICO I","2026-09-19","FALTA"],[2550417,"Luiz Diogo Mairink",38169,"AUXILIAR LOGISTICO I","2026-09-19","FALTA"],[2500217,"Marta Regina da Silva Lopes",38211,"AUXILIAR LOGISTICO I","2026-09-19","ATESTADO"],[2613441,"Ana Clara Canário França",38235,"AUXILIAR LOGISTICO I","2026-09-20","FALTA"],[2202292,"Antônio Carlos Filano da Silva",38148,"AUXILIAR LOGISTICO I","2026-09-20","FALTA"],[2613459,"Caio Carvalho De Lima",38375,"AUXILIAR LOGISTICO I","2026-09-20","FALTA"],[2579647,"Fábio Alves de Farias",38845,"AUXILIAR LOGISTICO I","2026-09-20","FALTA"],[2474760,"Jonathan Luiz Marques do Nascimento",40016,"AUXILIAR LOGISTICO I","2026-09-20","ATESTADO"],[2613813,"Julia souza de Freitas Valle",38675,"AUXILIAR LOGISTICO I","2026-09-20","FALTA"],[2500200,"Juliana de Souza Matheus",38875,"AUXILIAR LOGISTICO I","2026-09-20","ATESTADO"],[2155614,"Kaique Victorio Dos Santos",39053,"AUXILIAR LOGISTICO I","2026-09-20","ATESTADO"],[2500196,"Karina da Silva Gouvêa",38179,"AUXILIAR LOGISTICO I","2026-09-20","FALTA"],[2613755,"Lara Silva da Costa",38173,"AUXILIAR LOGISTICO I","2026-09-20","FALTA"],[2214101,"Lívia de Souza Lima",38824,"AUXILIAR LOGISTICO I","2026-09-20","FALTA"],[2564924,"Luana Arouxa Coutinho de Sousa",38820,"AUXILIAR LOGISTICO I","2026-09-20","FALTA"],[2550375,"Suzana Diniz Santos de Oliveira",38810,"AUXILIAR LOGISTICO I","2026-09-20","ATESTADO"],[2500226,"Tiffani Julia Silva Rangel",38157,"AUXILIAR LOGISTICO I","2026-09-20","FALTA"],[2636281,"Agatha Fernanda Saluci da Cruz",40023,"AUXILIAR LOGISTICO I","2026-09-21","ATESTADO"],[265236,"Ana beatriz da Silva",38280,"AUXILIAR LOGISTICO I","2026-09-21","ATESTADO"],[2613441,"Ana Clara Canário França",38235,"AUXILIAR LOGISTICO I","2026-09-21","FALTA"],[2646820,"CLARICE MARIA RIBEIRO DANTAS DA SILVA",40285,"AUXILIAR LOGISTICO I","2026-09-21","ATESTADO"],[2152160,"Dejailson Valerio da silva",38210,"AUXILIAR LOGISTICO I","2026-09-21","FALTA"],[2462946,"Ernani Junior de Paula Pinto",38124,"AUXILIAR LOGISTICO I","2026-09-21","FALTA"],[2132294,"Glauciene Silva de Sales",38772,"AUXILIAR LOGISTICO I","2026-09-21","ATESTADO"],[2500196,"Karina da Silva Gouvêa",38179,"AUXILIAR LOGISTICO I","2026-09-21","FALTA"],[2613828,"Marcellyn Vitória dos Santos",38669,"AUXILIAR LOGISTICO I","2026-09-21","ATESTADO"],[2613817,"Maria Eduarda Rezende geraldelle",38627,"AUXILIAR LOGISTICO I","2026-09-21","ATESTADO"],[2613746,"Samara Valéria Medeiros de Oliveira",39003,"AUXILIAR LOGISTICO I","2026-09-21","ATESTADO"],[2663169,"SARAH FIGUEIRA LIMA",41764,"AUXILIAR LOGISTICO I","2026-09-21","FALTA"],[2613743,"Yuri Jimenes leitão",38234,"AUXILIAR LOGISTICO I","2026-09-21","FALTA"],[2636281,"Agatha Fernanda Saluci da Cruz",40023,"AUXILIAR LOGISTICO I","2026-09-22","ATESTADO"],[2432555,"Dandara cristina ferreira",38225,"AUXILIAR LOGISTICO I","2026-09-22","ATESTADO"],[2556000,"Deivide William de Jesus Matos",38259,"AUXILIAR LOGISTICO I","2026-09-22","ATESTADO"],[2462946,"Ernani Junior de Paula Pinto",38124,"AUXILIAR LOGISTICO I","2026-09-22","FALTA"],[2613841,"Esteffane Santana",38658,"AUXILIAR LOGISTICO I","2026-09-22","FALTA"],[2132294,"Glauciene Silva de Sales",38772,"AUXILIAR LOGISTICO I","2026-09-22","ATESTADO"],[2109434,"Kauane da Silva Francisco Sousa de Sena",38673,"AUXILIAR LOGISTICO I","2026-09-22","ATESTADO"],[2613817,"Maria Eduarda Rezende geraldelle",38627,"AUXILIAR LOGISTICO I","2026-09-22","ATESTADO"],[2315990,"Mariana do Nascimento militao",38172,"AUXILIAR LOGISTICO I","2026-09-22","ATESTADO"],[2452455,"Mariana Milene Peçanha da Silva",38291,"AUXILIAR LOGISTICO I","2026-09-22","ATESTADO"],[2500217,"Marta Regina da Silva Lopes",38211,"AUXILIAR LOGISTICO I","2026-09-22","ATESTADO"],[219347,"Monique dos Santos Goudard",38791,"AUXILIAR LOGISTICO I","2026-09-22","ATESTADO"],[2555955,"Nayara ribeiro de jesus",38932,"AUXILIAR LOGISTICO I","2026-09-22","ATESTADO"],[2550409,"Patricia Francisca dos Santos",38894,"AUXILIAR LOGISTICO I","2026-09-22","ATESTADO"],[2613763,"Stefani Da Silva Astrolabio",38997,"AUXILIAR LOGISTICO I","2026-09-22","ATESTADO"],[2636281,"Agatha Fernanda Saluci da Cruz",40023,"AUXILIAR LOGISTICO I","2026-09-23","ATESTADO"],[2462946,"Ernani Junior de Paula Pinto",38124,"AUXILIAR LOGISTICO I","2026-09-23","FALTA"],[1312932,"Fátima Luana da Silva Pires",38199,"AUXILIAR LOGISTICO I","2026-09-23","FALTA"],[2613451,"Joana Dias Salomão Santos do Nascimento",38184,"AUXILIAR LOGISTICO I","2026-09-23","FALTA"],[2504319,"Juliana da Silva Benevides",38789,"AUXILIAR LOGISTICO I","2026-09-23","ATESTADO"],[2109434,"Kauane da Silva Francisco Sousa de Sena",38673,"AUXILIAR LOGISTICO I","2026-09-23","ATESTADO"],[2613733,"KEROLAYNNE BEATRYZ FERREIRA DE LIMA",38224,"AUXILIAR LOGISTICO I","2026-09-23","ATESTADO"],[2500228,"Letícia da Silva Gonçalves",38191,"AUXILIAR LOGISTICO I","2026-09-23","ATESTADO"],[2564924,"Luana Arouxa Coutinho de Sousa",38820,"AUXILIAR LOGISTICO I","2026-09-23","ATESTADO"],[2613817,"Maria Eduarda Rezende geraldelle",38627,"AUXILIAR LOGISTICO I","2026-09-23","ATESTADO"],[1908859,"Rayane Ferreira dos Santos",38752,"AUXILIAR LOGISTICO I","2026-09-23","FALTA"],[2549064,"Samuel Jorge Silva Nascimento",38133,"AUXILIAR LOGISTICO I","2026-09-23","ATESTADO"],[1843873,"Savio Carneiro da Costa",39941,"AUXILIAR LOGISTICO I","2026-09-23","ATESTADO"],[2268562,"Sthefany de Souza da Silva",40026,"AUXILIAR LOGISTICO I","2026-09-23","ATESTADO"],[2550375,"Suzana Diniz Santos de Oliveira",38810,"AUXILIAR LOGISTICO I","2026-09-23","FALTA"],[2646820,"CLARICE MARIA RIBEIRO DANTAS DA SILVA",40285,"AUXILIAR LOGISTICO I","2026-09-24","ATESTADO"],[2550414,"Heloísa Silva",38378,"AUXILIAR LOGISTICO I","2026-09-24","ATESTADO"],[2613793,"Igor Nascimento de sousa",38683,"AUXILIAR LOGISTICO I","2026-09-24","FALTA"],[2613451,"Joana Dias Salomão Santos do Nascimento",38184,"AUXILIAR LOGISTICO I","2026-09-24","FALTA"],[2500228,"Letícia da Silva Gonçalves",38191,"AUXILIAR LOGISTICO I","2026-09-24","ATESTADO"],[1908859,"Rayane Ferreira dos Santos",38752,"AUXILIAR LOGISTICO I","2026-09-24","FALTA"],[437219,"Ronei Franklin da Silva",39049,"AUXILIAR LOGISTICO I","2026-09-24","FALTA"],[2549064,"Samuel Jorge Silva Nascimento",38133,"AUXILIAR LOGISTICO I","2026-09-24","ATESTADO"],[1843873,"Savio Carneiro da Costa",39941,"AUXILIAR LOGISTICO I","2026-09-24","ATESTADO"],[2613456,"Sthefany Morete Conceição",38379,"AUXILIAR LOGISTICO I","2026-09-24","FALTA"],[2500202,"Thayza Roberta Souza dos Santos",38207,"AUXILIAR LOGISTICO I","2026-09-24","ATESTADO"],[2202647,"Zoraide Juscelina da Costa",38187,"AUXILIAR LOGISTICO I","2026-09-24","FALTA"],[2405168,"Ana Caroline Rodrigues da Costa",38314,"AUXILIAR LOGISTICO I","2026-09-25","ATESTADO"],[2629218,"Bruna Caroline Mendonça sponton",39446,"AUXILIAR LOGISTICO I","2026-09-25","FALTA"],[2142140,"Caroline da costa Fortunato silva",38203,"AUXILIAR LOGISTICO I","2026-09-25","ATESTADO"],[2646820,"CLARICE MARIA RIBEIRO DANTAS DA SILVA",40285,"AUXILIAR LOGISTICO I","2026-09-25","ATESTADO"],[2613738,"CLAUDIA MARIA DE OLIVEIRA DE ALMEIDA SANTOS",38263,"AUXILIAR LOGISTICO I","2026-09-25","ATESTADO"],[2114436,"Davi Rosa Urbano Da Silva",38835,"AUXILIAR LOGISTICO I","2026-09-25","FALTA"],[2613793,"Igor Nascimento de sousa",38683,"AUXILIAR LOGISTICO I","2026-09-25","FALTA"],[2613451,"Joana Dias Salomão Santos do Nascimento",38184,"AUXILIAR LOGISTICO I","2026-09-25","FALTA"],[2504319,"Juliana da Silva Benevides",38789,"AUXILIAR LOGISTICO I","2026-09-25","FALTA"],[2500228,"Letícia da Silva Gonçalves",38191,"AUXILIAR LOGISTICO I","2026-09-25","ATESTADO"],[2564924,"Luana Arouxa Coutinho de Sousa",38820,"AUXILIAR LOGISTICO I","2026-09-25","ATESTADO"],[2416028,"Lucas Freitas Lima da silva",38846,"AUXILIAR LOGISTICO I","2026-09-25","ATESTADO"],[2613817,"Maria Eduarda Rezende geraldelle",38627,"AUXILIAR LOGISTICO I","2026-09-25","ATESTADO"],[2503063,"Mariana Marques Barbosa dos Reis",38971,"AUXILIAR LOGISTICO I","2026-09-25","ATESTADO"],[1843873,"Savio Carneiro da Costa",39941,"AUXILIAR LOGISTICO I","2026-09-25","ATESTADO"],[2125429,"Thayná Fernandes Dos Santos",38732,"AUXILIAR LOGISTICO I","2026-09-25","ATESTADO"],[2303594,"Thaynara Barcelos de Andrade",38828,"AUXILIAR LOGISTICO I","2026-09-25","ATESTADO"],[2500202,"Thayza Roberta Souza dos Santos",38207,"AUXILIAR LOGISTICO I","2026-09-25","ATESTADO"],[2329952,"William Thompson de Azevedo",38255,"AUXILIAR LOGISTICO I","2026-09-25","ATESTADO"],[2613738,"CLAUDIA MARIA DE OLIVEIRA DE ALMEIDA SANTOS",38263,"AUXILIAR LOGISTICO I","2026-09-26","ATESTADO"],[2415964,"Davyse Andrade Rodrigues",38135,"AUXILIAR LOGISTICO I","2026-09-26","ATESTADO"],[2500203,"Jaqueline de Andrade dos Santos",38142,"AUXILIAR LOGISTICO I","2026-09-26","ATESTADO"],[2503075,"Jaqueline Lopes Barbosa da Silva",38310,"AUXILIAR LOGISTICO I","2026-09-26","FALTA"],[2613451,"Joana Dias Salomão Santos do Nascimento",38184,"AUXILIAR LOGISTICO I","2026-09-26","FALTA"],[2500200,"Juliana de Souza Matheus",38875,"AUXILIAR LOGISTICO I","2026-09-26","ATESTADO"],[2613733,"KEROLAYNNE BEATRYZ FERREIRA DE LIMA",38224,"AUXILIAR LOGISTICO I","2026-09-26","ATESTADO"],[2613787,"Natalia Pereira da Silva",38992,"AUXILIAR LOGISTICO I","2026-09-26","FALTA"],[2464179,"Vinicius Ferreira da Silva",38131,"AUXILIAR LOGISTICO I","2026-09-26","ATESTADO"],[2329952,"William Thompson de Azevedo",38255,"AUXILIAR LOGISTICO I","2026-09-26","FALTA"],[2613743,"Yuri Jimenes leitão",38234,"AUXILIAR LOGISTICO I","2026-09-26","FALTA"],[2613738,"CLAUDIA MARIA DE OLIVEIRA DE ALMEIDA SANTOS",38263,"AUXILIAR LOGISTICO I","2026-09-27","ATESTADO"],[2613807,"Joyce do nascimento Vieira",38618,"AUXILIAR LOGISTICO I","2026-09-27","ATESTADO"],[2462938,"Juliane Silva Gouvea",38301,"AUXILIAR LOGISTICO I","2026-09-27","FALTA"],[2613733,"KEROLAYNNE BEATRYZ FERREIRA DE LIMA",38224,"AUXILIAR LOGISTICO I","2026-09-27","ATESTADO"],[2646661,"WAGNER LEITE DA SILVA",40251,"AUXILIAR LOGISTICO I","2026-09-27","FALTA"],[2650502,"Aprigio de souza Lira",40542,"AUXILIAR LOGISTICO I","2026-09-28","FALTA"],[2613469,"Beatriz manso ribeiro de Almeida",38273,"AUXILIAR LOGISTICO I","2026-09-28","ATESTADO"],[2613459,"Caio Carvalho De Lima",38375,"AUXILIAR LOGISTICO I","2026-09-28","FALTA"],[2613738,"CLAUDIA MARIA DE OLIVEIRA DE ALMEIDA SANTOS",38263,"AUXILIAR LOGISTICO I","2026-09-28","ATESTADO"],[2432555,"Dandara cristina ferreira",38225,"AUXILIAR LOGISTICO I","2026-09-28","FALTA"],[2613767,"Evelyn Souza de Oliveira",38161,"AUXILIAR LOGISTICO I","2026-09-28","ATESTADO"],[2613739,"Flávia Martins Guimarães Agostinho",38232,"AUXILIAR LOGISTICO I","2026-09-28","ATESTADO"],[2613807,"Joyce do nascimento Vieira",38618,"AUXILIAR LOGISTICO I","2026-09-28","ATESTADO"],[2500196,"Karina da Silva Gouvêa",38179,"AUXILIAR LOGISTICO I","2026-09-28","FALTA"],[2109434,"Kauane da Silva Francisco Sousa de Sena",38673,"AUXILIAR LOGISTICO I","2026-09-28","FALTA"],[2613733,"KEROLAYNNE BEATRYZ FERREIRA DE LIMA",38224,"AUXILIAR LOGISTICO I","2026-09-28","ATESTADO"],[2564924,"Luana Arouxa Coutinho de Sousa",38820,"AUXILIAR LOGISTICO I","2026-09-28","ATESTADO"],[2613796,"Maristela da Silva",38927,"AUXILIAR LOGISTICO I","2026-09-28","ATESTADO"],[2688900,"Matheus Rogério Genovez Corrêa",42896,"AUXILIAR LOGISTICO I","2026-09-28","FALTA"],[2630402,"Vânia Flores de Carvalho",39456,"AUXILIAR LOGISTICO I","2026-09-28","FALTA"],[2503278,"Victória Silveira de Oliveira Pereira",38745,"AUXILIAR LOGISTICO I","2026-09-28","FALTA"],[2688853,"Caio Cesar Abrantes Lourenco",42888,"AUXILIAR LOGISTICO I","2026-09-29","FALTA"],[2109651,"Carolini Duarte Pereira",43107,"AUXILIAR LOGISTICO I","2026-09-29","ATESTADO"],[2613841,"Esteffane Santana",38658,"AUXILIAR LOGISTICO I","2026-09-29","ATESTADO"],[2613739,"Flávia Martins Guimarães Agostinho",38232,"AUXILIAR LOGISTICO I","2026-09-29","ATESTADO"],[2613462,"Gabriel Souza Alves",38289,"AUXILIAR LOGISTICO I","2026-09-29","FALTA"],[2613793,"Igor Nascimento de sousa",38683,"AUXILIAR LOGISTICO I","2026-09-29","FALTA"],[2613807,"Joyce do nascimento Vieira",38618,"AUXILIAR LOGISTICO I","2026-09-29","ATESTADO"],[2613733,"KEROLAYNNE BEATRYZ FERREIRA DE LIMA",38224,"AUXILIAR LOGISTICO I","2026-09-29","ATESTADO"],[2564924,"Luana Arouxa Coutinho de Sousa",38820,"AUXILIAR LOGISTICO I","2026-09-29","ATESTADO"],[2044261,"Maria Eduarda da Costa Leal",38924,"AUXILIAR LOGISTICO I","2026-09-29","FALTA"],[2613817,"Maria Eduarda Rezende geraldelle",38627,"AUXILIAR LOGISTICO I","2026-09-29","ATESTADO"],[2503264,"Tamela de Souza Silva",38862,"AUXILIAR LOGISTICO I","2026-09-29","ATESTADO"],[2613803,"Tayane Barcelos da Silva",39031,"AUXILIAR LOGISTICO I","2026-09-29","ATESTADO"],[2555929,"Vanessa Gabrielle silva",38931,"AUXILIAR LOGISTICO I","2026-09-29","ATESTADO"],[2630402,"Vânia Flores de Carvalho",39456,"AUXILIAR LOGISTICO I","2026-09-29","FALTA"],[2303646,"Wendel Pereira Gonçalves",39459,"AUXILIAR LOGISTICO I","2026-09-29","ATESTADO"],[2613743,"Yuri Jimenes leitão",38234,"AUXILIAR LOGISTICO I","2026-09-29","FALTA"],[2415948,"Ana Alexia Silva da paixão",38129,"AUXILIAR LOGISTICO I","2026-09-30","FALTA"],[2142140,"Caroline da costa Fortunato silva",38203,"AUXILIAR LOGISTICO I","2026-09-30","FALTA"],[2613739,"Flávia Martins Guimarães Agostinho",38232,"AUXILIAR LOGISTICO I","2026-09-30","ATESTADO"],[2613793,"Igor Nascimento de sousa",38683,"AUXILIAR LOGISTICO I","2026-09-30","FALTA"],[2564924,"Luana Arouxa Coutinho de Sousa",38820,"AUXILIAR LOGISTICO I","2026-09-30","ATESTADO"],[2044261,"Maria Eduarda da Costa Leal",38924,"AUXILIAR LOGISTICO I","2026-09-30","FALTA"],[2613817,"Maria Eduarda Rezende geraldelle",38627,"AUXILIAR LOGISTICO I","2026-09-30","ATESTADO"],[2613796,"Maristela da Silva",38927,"AUXILIAR LOGISTICO I","2026-09-30","ATESTADO"],[2613458,"Mayara Souza De Andrade",38501,"AUXILIAR LOGISTICO I","2026-09-30","ATESTADO"],[1905593,"Paloma Martins da Silva",38212,"AUXILIAR LOGISTICO I","2026-09-30","FALTA"],[1843873,"Savio Carneiro da Costa",39941,"AUXILIAR LOGISTICO I","2026-09-30","ATESTADO"],[2613456,"Sthefany Morete Conceição",38379,"AUXILIAR LOGISTICO I","2026-09-30","FALTA"],[2503264,"Tamela de Souza Silva",38862,"AUXILIAR LOGISTICO I","2026-09-30","ATESTADO"],[2125429,"Thayná Fernandes Dos Santos",38732,"AUXILIAR LOGISTICO I","2026-09-30","FALTA"],[2555929,"Vanessa Gabrielle silva",38931,"AUXILIAR LOGISTICO I","2026-09-30","ATESTADO"],[2630402,"Vânia Flores de Carvalho",39456,"AUXILIAR LOGISTICO I","2026-09-30","FALTA"],[1888868,"William Paulo Houtet Nascimento filho",39992,"AUXILIAR LOGISTICO I","2026-09-30","ATESTADO"],[2415948,"Ana Alexia Silva da paixão",38129,"AUXILIAR LOGISTICO I","2026-10-01","FALTA"],[2405174,"Ariana Souza Santos porto",38278,"AUXILIAR LOGISTICO I","2026-10-01","FALTA"],[2613459,"Caio Carvalho De Lima",38375,"AUXILIAR LOGISTICO I","2026-10-01","FALTA"],[2613738,"CLAUDIA MARIA DE OLIVEIRA DE ALMEIDA SANTOS",38263,"AUXILIAR LOGISTICO I","2026-10-01","ATESTADO"],[2500194,"Cleiton Dantas Andrade",38288,"AUXILIAR LOGISTICO I","2026-10-01","FALTA"],[2613742,"Emilly Luiza Anastacio Xavier",38257,"AUXILIAR LOGISTICO I","2026-10-01","ATESTADO"],[2613739,"Flávia Martins Guimarães Agostinho",38232,"AUXILIAR LOGISTICO I","2026-10-01","ATESTADO"],[2636285,"Indiara Miranda Perez",40024,"AUXILIAR LOGISTICO I","2026-10-01","ATESTADO"],[2503266,"Jessica Mendes Pessanha Almeida",38746,"AUXILIAR LOGISTICO I","2026-10-01","FALTA"],[2464182,"Kaique pereira de lima",38287,"AUXILIAR LOGISTICO I","2026-10-01","FALTA"],[2500196,"Karina da Silva Gouvêa",38179,"AUXILIAR LOGISTICO I","2026-10-01","FALTA"],[2613755,"Lara Silva da Costa",38173,"AUXILIAR LOGISTICO I","2026-10-01","ATESTADO"],[2462930,"Lorrainy Caroliny Oliveira Martins de Andrade",38743,"AUXILIAR LOGISTICO I","2026-10-01","ATESTADO"],[2564924,"Luana Arouxa Coutinho de Sousa",38820,"AUXILIAR LOGISTICO I","2026-10-01","ATESTADO"],[2613817,"Maria Eduarda Rezende geraldelle",38627,"AUXILIAR LOGISTICO I","2026-10-01","FALTA"],[2613796,"Maristela da Silva",38927,"AUXILIAR LOGISTICO I","2026-10-01","ATESTADO"],[2579659,"Michelle da Silva de Mendonca",39945,"AUXILIAR LOGISTICO I","2026-10-01","ATESTADO"],[2613754,"Monique Domingos da Silva de Almeida",39001,"AUXILIAR LOGISTICO I","2026-10-01","ATESTADO"],[437219,"Ronei Franklin da Silva",39049,"AUXILIAR LOGISTICO I","2026-10-01","FALTA"],[1843873,"Savio Carneiro da Costa",39941,"AUXILIAR LOGISTICO I","2026-10-01","FALTA"],[2503264,"Tamela de Souza Silva",38862,"AUXILIAR LOGISTICO I","2026-10-01","ATESTADO"],[2555929,"Vanessa Gabrielle silva",38931,"AUXILIAR LOGISTICO I","2026-10-01","ATESTADO"],[2464179,"Vinicius Ferreira da Silva",38131,"AUXILIAR LOGISTICO I","2026-10-01","FALTA"],[2329952,"William Thompson de Azevedo",38255,"AUXILIAR LOGISTICO I","2026-10-01","FALTA"],[2613465,"Alisson Reis Cardoso da Silva",38283,"AUXILIAR LOGISTICO I","2026-10-02","FALTA"],[2415948,"Ana Alexia Silva da paixão",38129,"AUXILIAR LOGISTICO I","2026-10-02","ATESTADO"],[2462943,"Ana Carolina Maroz de Oliveira",38178,"AUXILIAR LOGISTICO I","2026-10-02","ATESTADO"],[2500368,"Carlos Eduardo de Souza",38265,"AUXILIAR LOGISTICO I","2026-10-02","FALTA"],[2613738,"CLAUDIA MARIA DE OLIVEIRA DE ALMEIDA SANTOS",38263,"AUXILIAR LOGISTICO I","2026-10-02","ATESTADO"],[2500194,"Cleiton Dantas Andrade",38288,"AUXILIAR LOGISTICO I","2026-10-02","FALTA"],[2564929,"Hugo Oliveira Monsores",38801,"AUXILIAR LOGISTICO I","2026-10-02","FALTA"],[2636285,"Indiara Miranda Perez",40024,"AUXILIAR LOGISTICO I","2026-10-02","ATESTADO"],[2613755,"Lara Silva da Costa",38173,"AUXILIAR LOGISTICO I","2026-10-02","ATESTADO"],[2462930,"Lorrainy Caroliny Oliveira Martins de Andrade",38743,"AUXILIAR LOGISTICO I","2026-10-02","ATESTADO"],[2613817,"Maria Eduarda Rezende geraldelle",38627,"AUXILIAR LOGISTICO I","2026-10-02","FALTA"],[2613796,"Maristela da Silva",38927,"AUXILIAR LOGISTICO I","2026-10-02","ATESTADO"],[2579659,"Michelle da Silva de Mendonca",39945,"AUXILIAR LOGISTICO I","2026-10-02","ATESTADO"],[2613754,"Monique Domingos da Silva de Almeida",39001,"AUXILIAR LOGISTICO I","2026-10-02","ATESTADO"],[437219,"Ronei Franklin da Silva",39049,"AUXILIAR LOGISTICO I","2026-10-02","FALTA"],[2142235,"Santhye Marambaia dos Reis Lemos",38222,"AUXILIAR LOGISTICO I","2026-10-02","FALTA"],[2503264,"Tamela de Souza Silva",38862,"AUXILIAR LOGISTICO I","2026-10-02","ATESTADO"],[2555929,"Vanessa Gabrielle silva",38931,"AUXILIAR LOGISTICO I","2026-10-02","ATESTADO"],[2464179,"Vinicius Ferreira da Silva",38131,"AUXILIAR LOGISTICO I","2026-10-02","ATESTADO"],[2564847,"Bianca Regina Ferreira de Meira Lima Campos",38371,"AUXILIAR LOGISTICO I","2026-10-03","FALTA"],[2629218,"Bruna Caroline Mendonça sponton",39446,"AUXILIAR LOGISTICO I","2026-10-03","FALTA"],[2622029,"Bruna Gomes dos Santos",38180,"AUXILIAR LOGISTICO I","2026-10-03","ATESTADO"],[2415951,"CHRISTIAN ANDRES ROJAS BENAVIDES",38171,"AUXILIAR LOGISTICO I","2026-10-03","FALTA"],[2613738,"CLAUDIA MARIA DE OLIVEIRA DE ALMEIDA SANTOS",38263,"AUXILIAR LOGISTICO I","2026-10-03","ATESTADO"],[2615447,"Dryellen Almeida Pereira Cavalcanti",38237,"AUXILIAR LOGISTICO I","2026-10-03","ATESTADO"],[2613799,"Edinalva Bento da Silva",38991,"AUXILIAR LOGISTICO I","2026-10-03","ATESTADO"],[2613744,"Evanice da silva ferreira",38311,"AUXILIAR LOGISTICO I","2026-10-03","ATESTADO"],[2613739,"Flávia Martins Guimarães Agostinho",38232,"AUXILIAR LOGISTICO I","2026-10-03","ATESTADO"],[2613833,"Flavio dos Santos Mesquita",38646,"AUXILIAR LOGISTICO I","2026-10-03","ATESTADO"],[2613832,"Francileide Valentim de Lima",38644,"AUXILIAR LOGISTICO I","2026-10-03","FALTA"],[2564929,"Hugo Oliveira Monsores",38801,"AUXILIAR LOGISTICO I","2026-10-03","FALTA"],[2613451,"Joana Dias Salomão Santos do Nascimento",38184,"AUXILIAR LOGISTICO I","2026-10-03","FALTA"],[2315926,"Jorge Alberto Silva Santos Junior",38125,"AUXILIAR LOGISTICO I","2026-10-03","ATESTADO"],[2500200,"Juliana de Souza Matheus",38875,"AUXILIAR LOGISTICO I","2026-10-03","ATESTADO"],[2109434,"Kauane da Silva Francisco Sousa de Sena",38673,"AUXILIAR LOGISTICO I","2026-10-03","ATESTADO"],[2613796,"Maristela da Silva",38927,"AUXILIAR LOGISTICO I","2026-10-03","ATESTADO"],[2613754,"Monique Domingos da Silva de Almeida",39001,"AUXILIAR LOGISTICO I","2026-10-03","ATESTADO"],[437219,"Ronei Franklin da Silva",39049,"AUXILIAR LOGISTICO I","2026-10-03","FALTA"],[2142235,"Santhye Marambaia dos Reis Lemos",38222,"AUXILIAR LOGISTICO I","2026-10-03","ATESTADO"],[2613743,"Yuri Jimenes leitão",38234,"AUXILIAR LOGISTICO I","2026-10-03","FALTA"],[2613459,"Caio Carvalho De Lima",38375,"AUXILIAR LOGISTICO I","2026-10-04","ATESTADO"],[2613739,"Flávia Martins Guimarães Agostinho",38232,"AUXILIAR LOGISTICO I","2026-10-04","ATESTADO"],[2613833,"Flavio dos Santos Mesquita",38646,"AUXILIAR LOGISTICO I","2026-10-04","ATESTADO"],[2688868,"Jessica Carneiro Dos Santos",42894,"AUXILIAR LOGISTICO I","2026-10-04","ATESTADO"],[2646658,"JOANA DARC AUD",40259,"AUXILIAR LOGISTICO I","2026-10-04","FALTA"],[2613733,"KEROLAYNNE BEATRYZ FERREIRA DE LIMA",38224,"AUXILIAR LOGISTICO I","2026-10-04","FALTA"],[2613796,"Maristela da Silva",38927,"AUXILIAR LOGISTICO I","2026-10-04","ATESTADO"],[2613754,"Monique Domingos da Silva de Almeida",39001,"AUXILIAR LOGISTICO I","2026-10-04","ATESTADO"],[2503262,"NICOLAS INACIO DA CONCEIÇÃO",38319,"AUXILIAR LOGISTICO I","2026-10-04","FALTA"],[2564842,"Yasmin Rufino de Souza",38797,"AUXILIAR LOGISTICO I","2026-10-04","ATESTADO"],[2629218,"Bruna Caroline Mendonça sponton",39446,"AUXILIAR LOGISTICO I","2026-10-05","FALTA"],[2076023,"Bruna Gomes dos Santos.",39906,"AUXILIAR LOGISTICO I","2026-10-05","ATESTADO"],[2111748,"Bruna Vitória De Souza Lima",38388,"AUXILIAR LOGISTICO I","2026-10-05","FALTA"],[2040379,"Camilla Castro de Souza Amaral",38735,"AUXILIAR LOGISTICO I","2026-10-05","FALTA"],[2613738,"CLAUDIA MARIA DE OLIVEIRA DE ALMEIDA SANTOS",38263,"AUXILIAR LOGISTICO I","2026-10-05","ATESTADO"],[2195292,"Fabiana dos Santos Guarda",38382,"AUXILIAR LOGISTICO I","2026-10-05","FALTA"],[2636285,"Indiara Miranda Perez",40024,"AUXILIAR LOGISTICO I","2026-10-05","ATESTADO"],[2646658,"JOANA DARC AUD",40259,"AUXILIAR LOGISTICO I","2026-10-05","FALTA"],[2500196,"Karina da Silva Gouvêa",38179,"AUXILIAR LOGISTICO I","2026-10-05","FALTA"],[2564924,"Luana Arouxa Coutinho de Sousa",38820,"AUXILIAR LOGISTICO I","2026-10-05","FALTA"],[2613802,"Lucas Rangel Samuel",39027,"AUXILIAR LOGISTICO I","2026-10-05","FALTA"],[2613835,"Luis paulo Ferreira de Lima dos Santos",38651,"AUXILIAR LOGISTICO I","2026-10-05","FALTA"],[2613817,"Maria Eduarda Rezende geraldelle",38627,"AUXILIAR LOGISTICO I","2026-10-05","ATESTADO"],[2613796,"Maristela da Silva",38927,"AUXILIAR LOGISTICO I","2026-10-05","ATESTADO"],[1843873,"Savio Carneiro da Costa",39941,"AUXILIAR LOGISTICO I","2026-10-05","FALTA"],[2503264,"Tamela de Souza Silva",38862,"AUXILIAR LOGISTICO I","2026-10-05","ATESTADO"],[2555929,"Vanessa Gabrielle silva",38931,"AUXILIAR LOGISTICO I","2026-10-05","ATESTADO"],[2503278,"Victória Silveira de Oliveira Pereira",38745,"AUXILIAR LOGISTICO I","2026-10-05","ATESTADO"],[2646661,"WAGNER LEITE DA SILVA",40251,"AUXILIAR LOGISTICO I","2026-10-05","ATESTADO"],[2613743,"Yuri Jimenes leitão",38234,"AUXILIAR LOGISTICO I","2026-10-05","FALTA"],[2622029,"Bruna Gomes dos Santos",38180,"AUXILIAR LOGISTICO I","2026-10-06","ATESTADO"],[2613459,"Caio Carvalho De Lima",38375,"AUXILIAR LOGISTICO I","2026-10-06","FALTA"],[2613738,"CLAUDIA MARIA DE OLIVEIRA DE ALMEIDA SANTOS",38263,"AUXILIAR LOGISTICO I","2026-10-06","ATESTADO"],[2415978,"Elidiane Freitas Octaviano Nieto",38127,"AUXILIAR LOGISTICO I","2026-10-06","ATESTADO"],[1858520,"Fernando dos Santos Ferreira",38241,"AUXILIAR LOGISTICO I","2026-10-06","ATESTADO"],[2564890,"Flavia do nascimento Souza",38193,"AUXILIAR LOGISTICO I","2026-10-06","ATESTADO"],[2613739,"Flávia Martins Guimarães Agostinho",38232,"AUXILIAR LOGISTICO I","2026-10-06","ATESTADO"],[2555924,"Fúlvio Heleno Sanches de Lima",38189,"AUXILIAR LOGISTICO I","2026-10-06","ATESTADO"],[2636285,"Indiara Miranda Perez",40024,"AUXILIAR LOGISTICO I","2026-10-06","ATESTADO"],[2500203,"Jaqueline de Andrade dos Santos",38142,"AUXILIAR LOGISTICO I","2026-10-06","ATESTADO"],[2613451,"Joana Dias Salomão Santos do Nascimento",38184,"AUXILIAR LOGISTICO I","2026-10-06","FALTA"],[2500196,"Karina da Silva Gouvêa",38179,"AUXILIAR LOGISTICO I","2026-10-06","FALTA"],[2613755,"Lara Silva da Costa",38173,"AUXILIAR LOGISTICO I","2026-10-06","ATESTADO"],[2613802,"Lucas Rangel Samuel",39027,"AUXILIAR LOGISTICO I","2026-10-06","FALTA"],[2613817,"Maria Eduarda Rezende geraldelle",38627,"AUXILIAR LOGISTICO I","2026-10-06","ATESTADO"],[2613796,"Maristela da Silva",38927,"AUXILIAR LOGISTICO I","2026-10-06","ATESTADO"],[2500217,"Marta Regina da Silva Lopes",38211,"AUXILIAR LOGISTICO I","2026-10-06","FALTA"],[2211403,"Micael Marins souto",38562,"AUXILIAR LOGISTICO I","2026-10-06","ATESTADO"],[2613754,"Monique Domingos da Silva de Almeida",39001,"AUXILIAR LOGISTICO I","2026-10-06","ATESTADO"],[2613777,"Paulo Macedo Oliveira",38933,"AUXILIAR LOGISTICO I","2026-10-06","FALTA"],[2340663,"Rodolfo Fernandes Blazio Junior",38839,"AUXILIAR LOGISTICO I","2026-10-06","ATESTADO"],[1843873,"Savio Carneiro da Costa",39941,"AUXILIAR LOGISTICO I","2026-10-06","FALTA"],[2503264,"Tamela de Souza Silva",38862,"AUXILIAR LOGISTICO I","2026-10-06","ATESTADO"],[2500226,"Tiffani Julia Silva Rangel",38157,"AUXILIAR LOGISTICO I","2026-10-06","FALTA"],[2555929,"Vanessa Gabrielle silva",38931,"AUXILIAR LOGISTICO I","2026-10-06","ATESTADO"],[2550411,"Veronica Isidoro Lopes",38168,"AUXILIAR LOGISTICO I","2026-10-06","FALTA"],[2503278,"Victória Silveira de Oliveira Pereira",38745,"AUXILIAR LOGISTICO I","2026-10-06","ATESTADO"],[2382273,"Vitória Soares do Nascimento",38850,"AUXILIAR LOGISTICO I","2026-10-06","ATESTADO"],[2688858,"Carolina De Sales Pereira Pinto",42890,"AUXILIAR LOGISTICO I","2026-10-07","FALTA"],[2613738,"CLAUDIA MARIA DE OLIVEIRA DE ALMEIDA SANTOS",38263,"AUXILIAR LOGISTICO I","2026-10-07","ATESTADO"],[2152960,"David de Souza Freitas",38298,"AUXILIAR LOGISTICO I","2026-10-07","FALTA"],[1858520,"Fernando dos Santos Ferreira",38241,"AUXILIAR LOGISTICO I","2026-10-07","ATESTADO"],[2564890,"Flavia do nascimento Souza",38193,"AUXILIAR LOGISTICO I","2026-10-07","ATESTADO"],[2613461,"João Paulo da Silva",38292,"AUXILIAR LOGISTICO I","2026-10-07","ATESTADO"],[2500196,"Karina da Silva Gouvêa",38179,"AUXILIAR LOGISTICO I","2026-10-07","FALTA"],[2109434,"Kauane da Silva Francisco Sousa de Sena",38673,"AUXILIAR LOGISTICO I","2026-10-07","FALTA"],[2613755,"Lara Silva da Costa",38173,"AUXILIAR LOGISTICO I","2026-10-07","ATESTADO"],[2613831,"Lucas dos Santos Silva",38989,"AUXILIAR LOGISTICO I","2026-10-07","FALTA"],[2613802,"Lucas Rangel Samuel",39027,"AUXILIAR LOGISTICO I","2026-10-07","FALTA"],[2613817,"Maria Eduarda Rezende geraldelle",38627,"AUXILIAR LOGISTICO I","2026-10-07","ATESTADO"],[2211403,"Micael Marins souto",38562,"AUXILIAR LOGISTICO I","2026-10-07","ATESTADO"],[2613754,"Monique Domingos da Silva de Almeida",39001,"AUXILIAR LOGISTICO I","2026-10-07","ATESTADO"],[2613787,"Natalia Pereira da Silva",38992,"AUXILIAR LOGISTICO I","2026-10-07","ATESTADO"],[1690680,"NATIELLE BEZERRA DA SILVA",38993,"AUXILIAR LOGISTICO I","2026-10-07","ATESTADO"],[2613777,"Paulo Macedo Oliveira",38933,"AUXILIAR LOGISTICO I","2026-10-07","FALTA"],[2202498,"Priscila Regiane Anastácio Rodrigues",38196,"AUXILIAR LOGISTICO I","2026-10-07","ATESTADO"],[2613770,"Rhenan Gomes Pereira",38935,"AUXILIAR LOGISTICO I","2026-10-07","FALTA"],[1843873,"Savio Carneiro da Costa",39941,"AUXILIAR LOGISTICO I","2026-10-07","FALTA"],[2503264,"Tamela de Souza Silva",38862,"AUXILIAR LOGISTICO I","2026-10-07","ATESTADO"],[2550411,"Veronica Isidoro Lopes",38168,"AUXILIAR LOGISTICO I","2026-10-07","FALTA"],[2464179,"Vinicius Ferreira da Silva",38131,"AUXILIAR LOGISTICO I","2026-10-07","ATESTADO"],[2382273,"Vitória Soares do Nascimento",38850,"AUXILIAR LOGISTICO I","2026-10-07","ATESTADO"],[337324,"Wedson soares Lourenço",38247,"AUXILIAR LOGISTICO I","2026-10-07","FALTA"],[2329952,"William Thompson de Azevedo",38255,"AUXILIAR LOGISTICO I","2026-10-07","ATESTADO"],[2688853,"Caio Cesar Abrantes Lourenco",42888,"AUXILIAR LOGISTICO I","2026-10-08","FALTA"],[2613738,"CLAUDIA MARIA DE OLIVEIRA DE ALMEIDA SANTOS",38263,"AUXILIAR LOGISTICO I","2026-10-08","ATESTADO"],[2564890,"Flavia do nascimento Souza",38193,"AUXILIAR LOGISTICO I","2026-10-08","ATESTADO"],[2613451,"Joana Dias Salomão Santos do Nascimento",38184,"AUXILIAR LOGISTICO I","2026-10-08","FALTA"],[333082,"Joice Vieira da Silva",38701,"AUXILIAR LOGISTICO I","2026-10-08","ATESTADO"],[2500200,"Juliana de Souza Matheus",38875,"AUXILIAR LOGISTICO I","2026-10-08","FALTA"],[2500196,"Karina da Silva Gouvêa",38179,"AUXILIAR LOGISTICO I","2026-10-08","FALTA"],[2109434,"Kauane da Silva Francisco Sousa de Sena",38673,"AUXILIAR LOGISTICO I","2026-10-08","FALTA"],[2613802,"Lucas Rangel Samuel",39027,"AUXILIAR LOGISTICO I","2026-10-08","FALTA"],[1967544,"Luzinete Telles Teixeira Soares",38136,"AUXILIAR LOGISTICO I","2026-10-08","ATESTADO"],[2315990,"Mariana do Nascimento militao",38172,"AUXILIAR LOGISTICO I","2026-10-08","ATESTADO"],[2211403,"Micael Marins souto",38562,"AUXILIAR LOGISTICO I","2026-10-08","ATESTADO"],[2613754,"Monique Domingos da Silva de Almeida",39001,"AUXILIAR LOGISTICO I","2026-10-08","ATESTADO"],[2613787,"Natalia Pereira da Silva",38992,"AUXILIAR LOGISTICO I","2026-10-08","ATESTADO"],[1690680,"NATIELLE BEZERRA DA SILVA",38993,"AUXILIAR LOGISTICO I","2026-10-08","ATESTADO"],[2503264,"Tamela de Souza Silva",38862,"AUXILIAR LOGISTICO I","2026-10-08","ATESTADO"],[2315986,"Tania Regina de Paula",38284,"AUXILIAR LOGISTICO I","2026-10-08","ATESTADO"],[2613758,"Thais Oliveira dos Santos",38998,"AUXILIAR LOGISTICO I","2026-10-08","ATESTADO"],[2152171,"Thamyris Moreira Nunes de castro",38188,"AUXILIAR LOGISTICO I","2026-10-08","ATESTADO"],[2405174,"Ariana Souza Santos porto",38278,"AUXILIAR LOGISTICO I","2026-10-09","ATESTADO"],[2629218,"Bruna Caroline Mendonça sponton",39446,"AUXILIAR LOGISTICO I","2026-10-09","ATESTADO"],[2688853,"Caio Cesar Abrantes Lourenco",42888,"AUXILIAR LOGISTICO I","2026-10-09","FALTA"],[2613738,"CLAUDIA MARIA DE OLIVEIRA DE ALMEIDA SANTOS",38263,"AUXILIAR LOGISTICO I","2026-10-09","ATESTADO"],[2405384,"Fernando da Silva Ferreira",38748,"AUXILIAR LOGISTICO I","2026-10-09","FALTA"],[2613739,"Flávia Martins Guimarães Agostinho",38232,"AUXILIAR LOGISTICO I","2026-10-09","ATESTADO"],[2555971,"Gessica Pereira de Santana Machado",38872,"AUXILIAR LOGISTICO I","2026-10-09","ATESTADO"],[2688868,"Jessica Carneiro Dos Santos",42894,"AUXILIAR LOGISTICO I","2026-10-09","FALTA"],[2613451,"Joana Dias Salomão Santos do Nascimento",38184,"AUXILIAR LOGISTICO I","2026-10-09","FALTA"],[2109434,"Kauane da Silva Francisco Sousa de Sena",38673,"AUXILIAR LOGISTICO I","2026-10-09","ATESTADO"],[2564924,"Luana Arouxa Coutinho de Sousa",38820,"AUXILIAR LOGISTICO I","2026-10-09","ATESTADO"],[2613831,"Lucas dos Santos Silva",38989,"AUXILIAR LOGISTICO I","2026-10-09","FALTA"],[2613802,"Lucas Rangel Samuel",39027,"AUXILIAR LOGISTICO I","2026-10-09","FALTA"],[2315990,"Mariana do Nascimento militao",38172,"AUXILIAR LOGISTICO I","2026-10-09","ATESTADO"],[2613796,"Maristela da Silva",38927,"AUXILIAR LOGISTICO I","2026-10-09","FALTA"],[2117258,"Otávio Luis Rezende Marcos",38376,"AUXILIAR LOGISTICO I","2026-10-09","ATESTADO"],[2503264,"Tamela de Souza Silva",38862,"AUXILIAR LOGISTICO I","2026-10-09","ATESTADO"],[2613803,"Tayane Barcelos da Silva",39031,"AUXILIAR LOGISTICO I","2026-10-09","FALTA"],[2613758,"Thais Oliveira dos Santos",38998,"AUXILIAR LOGISTICO I","2026-10-09","ATESTADO"],[2613749,"Wanderlei Evaristo de castro",39051,"AUXILIAR LOGISTICO I","2026-10-09","ATESTADO"],[2629218,"Bruna Caroline Mendonça sponton",39446,"AUXILIAR LOGISTICO I","2026-10-10","ATESTADO"],[2613459,"Caio Carvalho De Lima",38375,"AUXILIAR LOGISTICO I","2026-10-10","FALTA"],[2415951,"CHRISTIAN ANDRES ROJAS BENAVIDES",38171,"AUXILIAR LOGISTICO I","2026-10-10","FALTA"],[2503263,"Daiana Ferreira Nunes",38220,"AUXILIAR LOGISTICO I","2026-10-10","FALTA"],[2114436,"Davi Rosa Urbano Da Silva",38835,"AUXILIAR LOGISTICO I","2026-10-10","ATESTADO"],[2405277,"Davidson Almeida Maia",40022,"AUXILIAR LOGISTICO I","2026-10-10","ATESTADO"],[2556000,"Deivide William de Jesus Matos",38259,"AUXILIAR LOGISTICO I","2026-10-10","ATESTADO"],[2613739,"Flávia Martins Guimarães Agostinho",38232,"AUXILIAR LOGISTICO I","2026-10-10","ATESTADO"],[2555971,"Gessica Pereira de Santana Machado",38872,"AUXILIAR LOGISTICO I","2026-10-10","FALTA"],[2646658,"JOANA DARC AUD",40259,"AUXILIAR LOGISTICO I","2026-10-10","FALTA"],[2613451,"Joana Dias Salomão Santos do Nascimento",38184,"AUXILIAR LOGISTICO I","2026-10-10","FALTA"],[2500196,"Karina da Silva Gouvêa",38179,"AUXILIAR LOGISTICO I","2026-10-10","FALTA"],[2109434,"Kauane da Silva Francisco Sousa de Sena",38673,"AUXILIAR LOGISTICO I","2026-10-10","ATESTADO"],[2550417,"Luiz Diogo Mairink",38169,"AUXILIAR LOGISTICO I","2026-10-10","ATESTADO"],[2315990,"Mariana do Nascimento militao",38172,"AUXILIAR LOGISTICO I","2026-10-10","ATESTADO"],[2452455,"Mariana Milene Peçanha da Silva",38291,"AUXILIAR LOGISTICO I","2026-10-10","ATESTADO"],[2117258,"Otávio Luis Rezende Marcos",38376,"AUXILIAR LOGISTICO I","2026-10-10","ATESTADO"],[2550630,"Priscila Souza da Silva Camilo",38122,"AUXILIAR LOGISTICO I","2026-10-10","ATESTADO"],[2500202,"Thayza Roberta Souza dos Santos",38207,"AUXILIAR LOGISTICO I","2026-10-10","ATESTADO"],[2613764,"André Luiz de Lima",38163,"AUXILIAR LOGISTICO I","2026-10-11","FALTA"],[2405277,"Davidson Almeida Maia",40022,"AUXILIAR LOGISTICO I","2026-10-11","ATESTADO"],[2613739,"Flávia Martins Guimarães Agostinho",38232,"AUXILIAR LOGISTICO I","2026-10-11","ATESTADO"],[2613735,"Gabriel Domingos Chalef Cruz",38226,"AUXILIAR LOGISTICO I","2026-10-11","FALTA"],[2500196,"Karina da Silva Gouvêa",38179,"AUXILIAR LOGISTICO I","2026-10-11","FALTA"],[2613733,"KEROLAYNNE BEATRYZ FERREIRA DE LIMA",38224,"AUXILIAR LOGISTICO I","2026-10-11","ATESTADO"],[2500225,"Lorane Aguiar de Maria",38201,"AUXILIAR LOGISTICO I","2026-10-11","FALTA"],[2550417,"Luiz Diogo Mairink",38169,"AUXILIAR LOGISTICO I","2026-10-11","ATESTADO"],[2315990,"Mariana do Nascimento militao",38172,"AUXILIAR LOGISTICO I","2026-10-11","ATESTADO"],[2117258,"Otávio Luis Rezende Marcos",38376,"AUXILIAR LOGISTICO I","2026-10-11","ATESTADO"],[2550630,"Priscila Souza da Silva Camilo",38122,"AUXILIAR LOGISTICO I","2026-10-11","ATESTADO"],[149367,"Adriano Pereira Pires",39967,"AUXILIAR LOGISTICO I","2026-10-12","FALTA"],[2636281,"Agatha Fernanda Saluci da Cruz",40023,"AUXILIAR LOGISTICO I","2026-10-12","FALTA"],[2415948,"Ana Alexia Silva da paixão",38129,"AUXILIAR LOGISTICO I","2026-10-12","ATESTADO"],[2096185,"Ana carolina monteiro da silva",38208,"AUXILIAR LOGISTICO I","2026-10-12","FALTA"],[2615451,"André Luiz Costa Ansel",38967,"AUXILIAR LOGISTICO I","2026-10-12","FALTA"],[1967182,"Augusto Lourenço Ferreira",38260,"AUXILIAR LOGISTICO I","2026-10-12","FALTA"],[2411554,"Beatriz Germano da Silva Araújo",38812,"AUXILIAR LOGISTICO I","2026-10-12","FALTA"],[2629218,"Bruna Caroline Mendonça sponton",39446,"AUXILIAR LOGISTICO I","2026-10-12","FALTA"],[2040379,"Camilla Castro de Souza Amaral",38735,"AUXILIAR LOGISTICO I","2026-10-12","FALTA"],[50345,"Charles Lopes de Oliveira",38264,"AUXILIAR LOGISTICO I","2026-10-12","FALTA"],[2646820,"CLARICE MARIA RIBEIRO DANTAS DA SILVA",40285,"AUXILIAR LOGISTICO I","2026-10-12","FALTA"],[2432555,"Dandara cristina ferreira",38225,"AUXILIAR LOGISTICO I","2026-10-12","ATESTADO"],[2152960,"David de Souza Freitas",38298,"AUXILIAR LOGISTICO I","2026-10-12","FALTA"],[2405277,"Davidson Almeida Maia",40022,"AUXILIAR LOGISTICO I","2026-10-12","ATESTADO"],[2613819,"Davidson Batista de Andrade",38632,"AUXILIAR LOGISTICO I","2026-10-12","FALTA"],[2415964,"Davyse Andrade Rodrigues",38135,"AUXILIAR LOGISTICO I","2026-10-12","FALTA"],[2542079,"Edmilson Silva de Freitas",38664,"AUXILIAR LOGISTICO I","2026-10-12","FALTA"],[2613742,"Emilly Luiza Anastacio Xavier",38257,"AUXILIAR LOGISTICO I","2026-10-12","FALTA"],[2646676,"ERICA ALENCAR AMANCIO DE BRITO",40275,"AUXILIAR LOGISTICO I","2026-10-12","FALTA"],[2613841,"Esteffane Santana",38658,"AUXILIAR LOGISTICO I","2026-10-12","FALTA"],[1926339,"Fábio Pereira Henrique Santos",38214,"AUXILIAR LOGISTICO I","2026-10-12","FALTA"],[2405384,"Fernando da Silva Ferreira",38748,"AUXILIAR LOGISTICO I","2026-10-12","FALTA"],[2177221,"Flavia Miguel Dos Santos",38186,"AUXILIAR LOGISTICO I","2026-10-12","FALTA"],[2613462,"Gabriel Souza Alves",38289,"AUXILIAR LOGISTICO I","2026-10-12","FALTA"],[2500203,"Jaqueline de Andrade dos Santos",38142,"AUXILIAR LOGISTICO I","2026-10-12","ATESTADO"],[2503266,"Jessica Mendes Pessanha Almeida",38746,"AUXILIAR LOGISTICO I","2026-10-12","FALTA"],[2646658,"JOANA DARC AUD",40259,"AUXILIAR LOGISTICO I","2026-10-12","FALTA"],[2052361,"José Roberto Ferreira Junior",38269,"AUXILIAR LOGISTICO I","2026-10-12","FALTA"],[2412983,"Juan Alexandre Carvalho da Silva",38890,"AUXILIAR LOGISTICO I","2026-10-12","FALTA"],[2111743,"Juliana Conceição de Azevedo",38384,"AUXILIAR LOGISTICO I","2026-10-12","FALTA"],[2500200,"Juliana de Souza Matheus",38875,"AUXILIAR LOGISTICO I","2026-10-12","FALTA"],[2202430,"Larissa Rodrigues Leoncio da Silva",38756,"AUXILIAR LOGISTICO I","2026-10-12","FALTA"],[1886657,"Leonardo José da Silva e Silva",38733,"AUXILIAR LOGISTICO I","2026-10-12","FALTA"],[2462930,"Lorrainy Caroliny Oliveira Martins de Andrade",38743,"AUXILIAR LOGISTICO I","2026-10-12","FALTA"],[2613802,"Lucas Rangel Samuel",39027,"AUXILIAR LOGISTICO I","2026-10-12","FALTA"],[2613835,"Luis paulo Ferreira de Lima dos Santos",38651,"AUXILIAR LOGISTICO I","2026-10-12","ATESTADO"],[2452468,"Luiz Carlos Anselmo de Oliveira",38825,"AUXILIAR LOGISTICO I","2026-10-12","FALTA"],[2613801,"Magno Igor de Melo Ferreira",38919,"AUXILIAR LOGISTICO I","2026-10-12","FALTA"],[1888863,"Marcos Vinicius Pereira Torres",38182,"AUXILIAR LOGISTICO I","2026-10-12","FALTA"],[2613765,"Maria Eduarda Ferreira Almeida da Silva",38689,"AUXILIAR LOGISTICO I","2026-10-12","FALTA"],[2613442,"Maria Eduarda Ramos de Souza",38512,"AUXILIAR LOGISTICO I","2026-10-12","FALTA"],[2613817,"Maria Eduarda Rezende geraldelle",38627,"AUXILIAR LOGISTICO I","2026-10-12","FALTA"],[2315990,"Mariana do Nascimento militao",38172,"AUXILIAR LOGISTICO I","2026-10-12","ATESTADO"],[2503063,"Mariana Marques Barbosa dos Reis",38971,"AUXILIAR LOGISTICO I","2026-10-12","FALTA"],[2303626,"Mariana Mendes de Lima Santos",38205,"AUXILIAR LOGISTICO I","2026-10-12","FALTA"],[2452455,"Mariana Milene Peçanha da Silva",38291,"AUXILIAR LOGISTICO I","2026-10-12","FALTA"],[2503272,"mario alberto vieira junior",38728,"AUXILIAR LOGISTICO I","2026-10-12","FALTA"],[2613458,"Mayara Souza De Andrade",38501,"AUXILIAR LOGISTICO I","2026-10-12","FALTA"],[191212,"Michel Nascimento da Conceição",38238,"AUXILIAR LOGISTICO I","2026-10-12","FALTA"],[2579659,"Michelle da Silva de Mendonca",39945,"AUXILIAR LOGISTICO I","2026-10-12","FALTA"],[2613754,"Monique Domingos da Silva de Almeida",39001,"AUXILIAR LOGISTICO I","2026-10-12","FALTA"],[219347,"Monique dos Santos Goudard",38791,"AUXILIAR LOGISTICO I","2026-10-12","FALTA"],[139226,"Nilson de Almeida Bello",38874,"AUXILIAR LOGISTICO I","2026-10-12","FALTA"],[2545242,"Nubia Lopes Serafim",42898,"AUXILIAR LOGISTICO I","2026-10-12","ATESTADO"],[2117258,"Otávio Luis Rezende Marcos",38376,"AUXILIAR LOGISTICO I","2026-10-12","ATESTADO"],[2550409,"Patricia Francisca dos Santos",38894,"AUXILIAR LOGISTICO I","2026-10-12","FALTA"],[2464093,"Raphael Cardoso dos Santos",38158,"AUXILIAR LOGISTICO I","2026-10-12","FALTA"],[1908859,"Rayane Ferreira dos Santos",38752,"AUXILIAR LOGISTICO I","2026-10-12","FALTA"],[413529,"Roberto Carlos Monteiro pereira",39455,"AUXILIAR LOGISTICO I","2026-10-12","FALTA"],[2268562,"Sthefany de Souza da Silva",40026,"AUXILIAR LOGISTICO I","2026-10-12","FALTA"],[2177932,"Thaina Morais De Souza Paulo",40538,"AUXILIAR LOGISTICO I","2026-10-12","FALTA"],[1879791,"Tiago da Conceicao da Silva",39957,"AUXILIAR LOGISTICO I","2026-10-12","FALTA"],[2500226,"Tiffani Julia Silva Rangel",38157,"AUXILIAR LOGISTICO I","2026-10-12","FALTA"],[2416105,"Valdir zaria da silva do Nascimento",38734,"AUXILIAR LOGISTICO I","2026-10-12","FALTA"],[429696,"Vanderson Spinelli da Silva",38300,"AUXILIAR LOGISTICO I","2026-10-12","FALTA"],[2503273,"Vanessa Ribeiro da Silva","","AUXILIAR LOGISTICO I","2026-10-12","FALTA"],[2503278,"Victória Silveira de Oliveira Pereira",38745,"AUXILIAR LOGISTICO I","2026-10-12","FALTA"],[2457911,"Vitoria Rodrigues Sousa dos Santos",38765,"AUXILIAR LOGISTICO I","2026-10-12","FALTA"],[2646661,"WAGNER LEITE DA SILVA",40251,"AUXILIAR LOGISTICO I","2026-10-12","FALTA"],[1967552,"Wanderson Dos Santos Nogueira Fonseca",38249,"AUXILIAR LOGISTICO I","2026-10-12","FALTA"],[2613743,"Yuri Jimenes leitão",38234,"AUXILIAR LOGISTICO I","2026-10-12","FALTA"],[2629218,"Bruna Caroline Mendonça sponton",39446,"AUXILIAR LOGISTICO I","2026-10-13","FALTA"],[2622029,"Bruna Gomes dos Santos",38180,"AUXILIAR LOGISTICO I","2026-10-13","FALTA"],[2613470,"Carina Martins de Oliveira",38267,"AUXILIAR LOGISTICO I","2026-10-13","FALTA"],[2415951,"CHRISTIAN ANDRES ROJAS BENAVIDES",38171,"AUXILIAR LOGISTICO I","2026-10-13","ATESTADO"],[2432555,"Dandara cristina ferreira",38225,"AUXILIAR LOGISTICO I","2026-10-13","ATESTADO"],[2613829,"Dandara Nascimento André",38706,"AUXILIAR LOGISTICO I","2026-10-13","FALTA"],[2132324,"Dulce Olinda cabral ribeiro ricio",38231,"AUXILIAR LOGISTICO I","2026-10-13","ATESTADO"],[2564929,"Hugo Oliveira Monsores",38801,"AUXILIAR LOGISTICO I","2026-10-13","FALTA"],[2613451,"Joana Dias Salomão Santos do Nascimento",38184,"AUXILIAR LOGISTICO I","2026-10-13","FALTA"],[2500196,"Karina da Silva Gouvêa",38179,"AUXILIAR LOGISTICO I","2026-10-13","FALTA"],[2109434,"Kauane da Silva Francisco Sousa de Sena",38673,"AUXILIAR LOGISTICO I","2026-10-13","ATESTADO"],[2613733,"KEROLAYNNE BEATRYZ FERREIRA DE LIMA",38224,"AUXILIAR LOGISTICO I","2026-10-13","ATESTADO"],[2613802,"Lucas Rangel Samuel",39027,"AUXILIAR LOGISTICO I","2026-10-13","FALTA"],[2503269,"Marcio Jesus paixao",38505,"AUXILIAR LOGISTICO I","2026-10-13","ATESTADO"],[2613817,"Maria Eduarda Rezende geraldelle",38627,"AUXILIAR LOGISTICO I","2026-10-13","FALTA"],[2613458,"Mayara Souza De Andrade",38501,"AUXILIAR LOGISTICO I","2026-10-13","ATESTADO"],[2117258,"Otávio Luis Rezende Marcos",38376,"AUXILIAR LOGISTICO I","2026-10-13","ATESTADO"],[437219,"Ronei Franklin da Silva",39049,"AUXILIAR LOGISTICO I","2026-10-13","FALTA"],[2464179,"Vinicius Ferreira da Silva",38131,"AUXILIAR LOGISTICO I","2026-10-13","ATESTADO"],[2415948,"Ana Alexia Silva da paixão",38129,"AUXILIAR LOGISTICO I","2026-10-14","ATESTADO"],[2564847,"Bianca Regina Ferreira de Meira Lima Campos",38371,"AUXILIAR LOGISTICO I","2026-10-14","ATESTADO"],[2629218,"Bruna Caroline Mendonça sponton",39446,"AUXILIAR LOGISTICO I","2026-10-14","FALTA"],[2415951,"CHRISTIAN ANDRES ROJAS BENAVIDES",38171,"AUXILIAR LOGISTICO I","2026-10-14","ATESTADO"],[2613738,"CLAUDIA MARIA DE OLIVEIRA DE ALMEIDA SANTOS",38263,"AUXILIAR LOGISTICO I","2026-10-14","FALTA"],[2613739,"Flávia Martins Guimarães Agostinho",38232,"AUXILIAR LOGISTICO I","2026-10-14","ATESTADO"],[2564929,"Hugo Oliveira Monsores",38801,"AUXILIAR LOGISTICO I","2026-10-14","FALTA"],[2613451,"Joana Dias Salomão Santos do Nascimento",38184,"AUXILIAR LOGISTICO I","2026-10-14","FALTA"],[2500196,"Karina da Silva Gouvêa",38179,"AUXILIAR LOGISTICO I","2026-10-14","FALTA"],[2500228,"Letícia da Silva Gonçalves",38191,"AUXILIAR LOGISTICO I","2026-10-14","FALTA"],[2613802,"Lucas Rangel Samuel",39027,"AUXILIAR LOGISTICO I","2026-10-14","FALTA"],[2044261,"Maria Eduarda da Costa Leal",38924,"AUXILIAR LOGISTICO I","2026-10-14","ATESTADO"],[2688900,"Matheus Rogério Genovez Corrêa",42896,"AUXILIAR LOGISTICO I","2026-10-14","FALTA"],[2211403,"Micael Marins souto",38562,"AUXILIAR LOGISTICO I","2026-10-14","FALTA"],[2202498,"Priscila Regiane Anastácio Rodrigues",38196,"AUXILIAR LOGISTICO I","2026-10-14","ATESTADO"],[437219,"Ronei Franklin da Silva",39049,"AUXILIAR LOGISTICO I","2026-10-14","FALTA"],[2184278,"Thiago Ferreira da Silva",38162,"AUXILIAR LOGISTICO I","2026-10-14","FALTA"],[2629218,"Bruna Caroline Mendonça sponton",39446,"AUXILIAR LOGISTICO I","2026-10-15","FALTA"],[2415951,"CHRISTIAN ANDRES ROJAS BENAVIDES",38171,"AUXILIAR LOGISTICO I","2026-10-15","ATESTADO"],[2613444,"Dayana Rodrigues Dos Santos",38213,"AUXILIAR LOGISTICO I","2026-10-15","FALTA"],[2541170,"Elisangela Ferreira da Silva",38313,"AUXILIAR LOGISTICO I","2026-10-15","ATESTADO"],[1312932,"Fátima Luana da Silva Pires",38199,"AUXILIAR LOGISTICO I","2026-10-15","FALTA"],[2613739,"Flávia Martins Guimarães Agostinho",38232,"AUXILIAR LOGISTICO I","2026-10-15","ATESTADO"],[2688868,"Jessica Carneiro Dos Santos",42894,"AUXILIAR LOGISTICO I","2026-10-15","FALTA"],[2503266,"Jessica Mendes Pessanha Almeida",38746,"AUXILIAR LOGISTICO I","2026-10-15","FALTA"],[2646658,"JOANA DARC AUD",40259,"AUXILIAR LOGISTICO I","2026-10-15","ATESTADO"],[2613451,"Joana Dias Salomão Santos do Nascimento",38184,"AUXILIAR LOGISTICO I","2026-10-15","FALTA"],[2550417,"Luiz Diogo Mairink",38169,"AUXILIAR LOGISTICO I","2026-10-15","FALTA"],[2044261,"Maria Eduarda da Costa Leal",38924,"AUXILIAR LOGISTICO I","2026-10-15","ATESTADO"],[2613817,"Maria Eduarda Rezende geraldelle",38627,"AUXILIAR LOGISTICO I","2026-10-15","FALTA"],[2545242,"Nubia Lopes Serafim",42898,"AUXILIAR LOGISTICO I","2026-10-15","FALTA"],[2202498,"Priscila Regiane Anastácio Rodrigues",38196,"AUXILIAR LOGISTICO I","2026-10-15","ATESTADO"],[437219,"Ronei Franklin da Silva",39049,"AUXILIAR LOGISTICO I","2026-10-15","FALTA"],[2464179,"Vinicius Ferreira da Silva",38131,"AUXILIAR LOGISTICO I","2026-10-15","FALTA"],[2202647,"Zoraide Juscelina da Costa",38187,"AUXILIAR LOGISTICO I","2026-10-15","FALTA"]];
+const SEED_NAME = "FALTA  FATURA 15.10.2026.xlsx";
+
+/* ===== Utilidades ===== */
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const WD = ["domingo","segunda","terça","quarta","quinta","sexta","sábado"];
+const WD3 = ["dom","seg","ter","qua","qui","sex","sáb"];
+const pad = n => String(n).padStart(2,"0");
+const keyOf = (y,m,d) => `${y}-${pad(m)}-${pad(d)}`;
+const parseKey = k => { const [y,m,d]=k.split("-").map(Number); return new Date(Date.UTC(y,m-1,d)); };
+const fromDate = dt => keyOf(dt.getUTCFullYear(), dt.getUTCMonth()+1, dt.getUTCDate());
+const addDays = (k,n) => { const d=parseKey(k); d.setUTCDate(d.getUTCDate()+n); return fromDate(d); };
+const br = k => { const [y,m,d]=k.split("-"); return `${d}/${m}/${y}`; };
+const brShort = k => { const [,m,d]=k.split("-"); return `${d}/${m}`; };
+const wdOf = k => parseKey(k).getUTCDay();
+const todayKey = () => { const t=new Date(); return keyOf(t.getFullYear(),t.getMonth()+1,t.getDate()); };
+const fmt = n => n.toLocaleString("pt-BR");
+const pct = (a,b) => b ? Math.round(a/b*100) : 0;
+const title = s => String(s).toLowerCase().replace(/(^|\s)\S/g, c => c.toUpperCase()).replace(/\b(Da|De|Do|Das|Dos|E)\b/g, w => w.toLowerCase());
+const norm = s => String(s ?? "").normalize("NFD").replace(/[̀-ͯ]/g,"").toUpperCase().trim();
+const store = {
+  get(k,d){ try{ const v=localStorage.getItem("knfaltas:"+k); return v==null?d:JSON.parse(v);}catch(e){return d;} },
+  set(k,v){ try{ localStorage.setItem("knfaltas:"+k, JSON.stringify(v)); }catch(e){} }
+};
+function toast(msg){ const t=$("#toast"); t.textContent=msg; t.hidden=false; clearTimeout(toast._t); toast._t=setTimeout(()=>t.hidden=true,2600); }
+function tipoClass(t){ return t==="FALTA"||t==="ATESTADO" ? t : "OUTRO"; }
+function tipoLetter(t){ return t==="FALTA"?"F":t==="ATESTADO"?"A":"O"; }
+
+/* ===== Estado ===== */
+// registro: {id, nome, mat, cargo, d:"YYYY-MM-DD", tipo}
+let DATA = [];      // tudo que aparece no app = SRC + LANÇAMENTOS
+let SRC = [];       // vindo da planilha/arquivo/dados embutidos
+let LOCAL = store.get("launch", []);   // lançamentos feitos no app (del:true = removido)
+let VALID = store.get("valid", {});    // dia -> data/hora da validação
+let BASE = null;    // lista total de colaboradores
+let SOURCE = {kind:"seed", label:SEED_NAME, at:null};
+const S = { tab: store.get("v2tab",null) ? store.get("tab","lanc") : (store.set("v2tab",1), "lanc"), lday: todayKey(), ltipo: "FALTA", cycle: null, from:null, to:null, tipo:"", cargo:"", day:null,
+            pessSort:{k:"tot",dir:-1}, regSort:{k:"d",dir:-1} };
+
+function fromSeed(){ return SEED.map(r => ({id:r[0], nome:r[1], mat:r[2], cargo:r[3], d:r[4], tipo:r[5]})); }
+
+/* ===== Leitura de planilha ===== */
+function cellToKey(v){
+  if (v == null || v === "") return null;
+  if (v instanceof Date && !isNaN(v)) return keyOf(v.getFullYear(), v.getMonth()+1, v.getDate());
+  if (typeof v === "number" && v > 20000 && v < 80000) { return fromDate(new Date(Date.UTC(1899,11,30) + Math.round(v)*864e5)); }
+  const s = String(v).trim();
+  let m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/); if (m) return keyOf(+m[1],+m[2],+m[3]);
+  m = s.match(/^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2,4})/);
+  if (m){ let d=+m[1], mo=+m[2], y=+m[3]; if (y<100) y+=2000; if (mo>12 && d<=12){ [d,mo]=[mo,d]; } return keyOf(y,mo,d); }
+  if (/^\d+(\.\d+)?$/.test(s)) return cellToKey(Number(s));
+  return null;
+}
+function normTipo(v){
+  const t = norm(v);
+  if (!t) return null;
+  if (t.startsWith("TOTAL")) return null;
+  if (t.includes("ATEST")) return "ATESTADO";
+  if (t.includes("FALTA") || t === "F") return "FALTA";
+  return t;
+}
+function parseRows(aoa){
+  // acha a linha de cabeçalho
+  let h = -1, map = {};
+  for (let i=0;i<Math.min(aoa.length,30);i++){
+    const row = (aoa[i]||[]).map(norm);
+    const iN = row.findIndex(c => c==="NOME" || c.startsWith("NOME"));
+    const iD = row.findIndex(c => c.includes("DATA"));
+    if (iN>=0 && iD>=0){
+      h=i;
+      map = { nome:iN, d:iD,
+        id: row.findIndex(c => c.startsWith("GROO") || c==="ID"),
+        mat: row.findIndex(c => c.startsWith("MATR")),
+        cargo: row.findIndex(c => c.startsWith("CARGO") || c.startsWith("FUNC")),
+        tipo: row.findIndex(c => c.startsWith("TIPO") || c.includes("FALTA") || c.includes("MOTIVO")) };
+      break;
+    }
+  }
+  if (h<0) throw new Error("Não achei o cabeçalho. A planilha precisa ter as colunas NOME e DATA AUSENCIA.");
+  const out=[]; let skipped=0;
+  for (let i=h+1;i<aoa.length;i++){
+    const r = aoa[i]||[];
+    const nome = String(r[map.nome] ?? "").trim();
+    const tipo = map.tipo>=0 ? normTipo(r[map.tipo]) : "FALTA";
+    if (!nome || !tipo){ continue; }
+    const d = cellToKey(r[map.d]);
+    if (!d){ skipped++; continue; }
+    const num = v => { const s=String(v ?? "").trim(); if(!s) return ""; const n=Number(s.replace(/\.0$/,"")); return isNaN(n)? s : n; };
+    out.push({ id: map.id>=0 ? num(r[map.id]) : "", nome, mat: map.mat>=0 ? num(r[map.mat]) : "", cargo: map.cargo>=0 ? String(r[map.cargo]??"").trim() : "", d, tipo });
+  }
+  if (!out.length) throw new Error("Nenhum registro encontrado abaixo do cabeçalho.");
+  return {rows:out, skipped};
+}
+function workbookToRows(wb){
+  // usa a primeira aba que tiver cabeçalho válido
+  let lastErr;
+  for (const name of wb.SheetNames){
+    const aoa = XLSX.utils.sheet_to_json(wb.Sheets[name], {header:1, raw:true, defval:""});
+    try { const r = parseRows(aoa); r.sheet = name; return r; } catch(e){ lastErr=e; }
+  }
+  throw lastErr || new Error("Planilha vazia.");
+}
+const rowKey = r => `${r.id||norm(r.nome)}|${r.d}`;
+function recompute(){
+  const m = new Map(SRC.map(r=>[rowKey(r),r]));
+  LOCAL.forEach(l=>{ const k=rowKey(l); if(l.del) m.delete(k); else m.set(k,{id:l.id,nome:l.nome,mat:l.mat,cargo:l.cargo,d:l.d,tipo:l.tipo}); });
+  DATA=[...m.values()];
+}
+function setData(rows, source, mode){
+  if (mode === "merge"){
+    const m = new Map(SRC.map(r=>[rowKey(r),r]));
+    rows.forEach(r => m.set(rowKey(r), r));
+    SRC = [...m.values()];
+  } else SRC = rows;
+  SOURCE = source; recompute();
+  if (source.kind !== "sheet") store.set("data", {rows:SRC, source});
+  S.day = null; S.cycle = null;
+  rebuildFilters(); render();
+}
+
+/* ===== Ciclos de fatura (16 → 15) ===== */
+function cycleStart(k){ const [y,m,d]=k.split("-").map(Number); if (d>=16) return keyOf(y,m,16); const dt=new Date(Date.UTC(y,m-2,16)); return fromDate(dt); }
+function cycleEnd(start){ const [y,m]=start.split("-").map(Number); return fromDate(new Date(Date.UTC(y,m,15))); }
+function cycleLabel(start){ return `Fatura ${brShort(start)} → ${br(cycleEnd(start))}`; }
+
+function rebuildFilters(){
+  const starts = [...new Set([...DATA.map(r=>cycleStart(r.d)), cycleStart(todayKey())])].sort().reverse();
+  const sel = $("#cycleSel");
+  sel.innerHTML = starts.map(s=>`<option value="${s}">${cycleLabel(s)}</option>`).join("") +
+    `<option value="all">Tudo (${fmt(DATA.length)} registros)</option><option value="custom">Datas personalizadas…</option>`;
+  if (!S.cycle || (S.cycle!=="all" && S.cycle!=="custom" && !starts.includes(S.cycle))) S.cycle = starts[0] || "all";
+  sel.value = S.cycle;
+  const tipos = [...new Set(DATA.map(r=>r.tipo))].sort();
+  $("#tipoSel").innerHTML = `<option value="">Todos</option>` + tipos.map(t=>`<option>${esc(t)}</option>`).join("");
+  if (!tipos.includes(S.tipo)) S.tipo=""; $("#tipoSel").value=S.tipo;
+  const cargos = [...new Set(DATA.map(r=>r.cargo).filter(Boolean))].sort();
+  $("#cargoSel").innerHTML = `<option value="">Todos</option>` + cargos.map(t=>`<option>${esc(t)}</option>`).join("");
+  if (!cargos.includes(S.cargo)) S.cargo=""; $("#cargoSel").value=S.cargo;
+  $("#cargoSel").closest(".field").hidden = cargos.length < 2;
+}
+function range(){
+  if (S.cycle==="all"){ const ds=DATA.map(r=>r.d).sort(); return [ds[0], ds[ds.length-1]]; }
+  if (S.cycle==="custom"){ const ds=DATA.map(r=>r.d).sort(); return [S.from||ds[0], S.to||ds[ds.length-1]]; }
+  return [S.cycle, cycleEnd(S.cycle)];
+}
+function filtered(withTipo=true){
+  const [a,b] = range();
+  return DATA.filter(r => r.d>=a && r.d<=b && (!S.cargo || r.cargo===S.cargo) && (!withTipo || !S.tipo || r.tipo===S.tipo));
+}
+function daysIn(a,b){ const out=[]; for(let k=a;k<=b;k=addDays(k,1)) out.push(k); return out; }
+
+/* ===== Agregações ===== */
+function byDay(rows){ const m={}; rows.forEach(r=>{ (m[r.d] ||= {F:0,A:0,O:0,t:0}); m[r.d][tipoLetter(r.tipo)]++; m[r.d].t++; }); return m; }
+function byPerson(rows){
+  const m=new Map();
+  rows.forEach(r=>{ const k=r.id||norm(r.nome); if(!m.has(k)) m.set(k,{key:k,id:r.id,nome:r.nome,mat:r.mat,cargo:r.cargo,F:0,A:0,O:0,tot:0,dates:[]});
+    const p=m.get(k); p[tipoLetter(r.tipo)]++; p.tot++; p.dates.push({d:r.d,t:r.tipo}); if(!p.mat && r.mat) p.mat=r.mat; });
+  const arr=[...m.values()]; arr.forEach(p=>{p.dates.sort((x,y)=>x.d<y.d?-1:1); p.last=p.dates[p.dates.length-1].d;}); return arr;
+}
+function stats(rows, a, b){
+  const lastData = rows.length ? rows.map(r=>r.d).sort().pop() : a;
+  const end = b < lastData ? b : lastData;           // dias corridos até o último dia com registro
+  const nd = Math.max(1, daysIn(a, end > a ? end : a).length);
+  const F=rows.filter(r=>r.tipo==="FALTA").length, A=rows.filter(r=>r.tipo==="ATESTADO").length;
+  const dm=byDay(rows); let peak=null; Object.entries(dm).forEach(([k,v])=>{ if(!peak||v.t>peak.v) peak={k,v:v.t}; });
+  return {tot:rows.length, F, A, O:rows.length-F-A, people:byPerson(rows).length, avg:rows.length/nd, nd, peak, end};
+}
+
+/* ===== Gráficos SVG ===== */
+function niceMax(v){ if(v<=5) return 5; const p=Math.pow(10,Math.floor(Math.log10(v))); const n=v/p; return (n<=1?1:n<=2?2:n<=2.5?2.5:n<=5?5:10)*p; }
+function stackedChart(days, dm, opts={}){
+  const H=opts.h||240, padL=30, padR=10, padT=16, padB=34; let bw=opts.bw||22, gap=opts.gap||6;
+  if (opts.fit){ const per=(opts.fit-padL-padR)/days.length; gap=Math.max(3,Math.min(10,Math.round(per*0.25))); bw=Math.max(12,Math.min(44,Math.floor(per-gap))); }
+  const W = padL+padR+days.length*(bw+gap);
+  const max = niceMax(Math.max(1,...days.map(k=>(dm[k]||{}).t||0)));
+  const y = v => padT + (H-padT-padB)*(1-v/max);
+  let s = `<svg viewBox="0 0 ${W} ${H}" width="${Math.max(W, opts.minW||0)}" height="${H}" role="img" aria-label="Ausências por dia">`;
+  const ticks = 4;
+  for(let i=0;i<=ticks;i++){ const v=max/ticks*i; s+=`<line x1="${padL}" x2="${W-padR}" y1="${y(v)}" y2="${y(v)}" stroke="var(--line)" stroke-width="1"/><text x="${padL-6}" y="${y(v)+4}" text-anchor="end">${Math.round(v*10)/10}</text>`; }
+  days.forEach((k,i)=>{
+    const v=dm[k]||{F:0,A:0,O:0,t:0}; const x=padL+i*(bw+gap)+gap/2; let base=0;
+    const sel = k===opts.selected; const wk = [0,6].includes(wdOf(k));
+    s+=`<g class="bar" data-day="${k}" style="cursor:pointer"><rect x="${x-gap/2}" y="${padT}" width="${bw+gap}" height="${H-padT-padB}" fill="${sel?'var(--soft)':'transparent'}"/>`;
+    [["F","var(--falta)"],["A","var(--atest)"],["O","var(--outro)"]].forEach(([t,c])=>{ if(!v[t]) return; const h=y(base)-y(base+v[t]); s+=`<rect x="${x}" y="${y(base+v[t])}" width="${bw}" height="${Math.max(0,h-1)}" rx="2" fill="${c}"><title>${br(k)} — ${t==='F'?'Faltas':t==='A'?'Atestados':'Outros'}: ${v[t]}</title></rect>`; base+=v[t]; });
+    if (v.t) s+=`<text class="val" x="${x+bw/2}" y="${y(v.t)-4}" text-anchor="middle">${v.t}</text>`;
+    s+=`<text x="${x+bw/2}" y="${H-padB+14}" text-anchor="middle" style="${wk?'font-weight:700':''}">${k.slice(8)}</text>`;
+    s+=`<text x="${x+bw/2}" y="${H-padB+27}" text-anchor="middle" style="font-size:9.5px">${WD3[wdOf(k)]}</text></g>`;
+  });
+  if (opts.avg){ s+=`<line x1="${padL}" x2="${W-padR}" y1="${y(opts.avg)}" y2="${y(opts.avg)}" stroke="var(--ink)" stroke-dasharray="4 4" stroke-width="1" opacity=".55"/>`; }
+  return s+"</svg>";
+}
+function bindBars(el){ el.querySelectorAll("g.bar").forEach(g=>g.addEventListener("click",()=>{ S.day=g.dataset.day; setTab("dia"); })); }
+
+/* ===== Render: DIA ===== */
+function lastDayWithData(){ const ds=filtered(false).map(r=>r.d).sort(); return ds.length? ds[ds.length-1] : (DATA.map(r=>r.d).sort().pop() || todayKey()); }
+function renderDia(){
+  const [a,b]=range();
+  if (!S.day) S.day = lastDayWithData();
+  const k=S.day; $("#dayPick").value=k;
+  $("#dayBig").textContent = br(k); $("#dayWd").textContent = WD[wdOf(k)];
+  const all = DATA.filter(r=>(!S.cargo||r.cargo===S.cargo));
+  const rows = all.filter(r=>r.d===k && (!S.tipo||r.tipo===S.tipo));
+  const F=rows.filter(r=>r.tipo==="FALTA").length, A=rows.filter(r=>r.tipo==="ATESTADO").length;
+  // média do ciclo do dia (até o dia anterior)
+  const cs=cycleStart(k), prev=all.filter(r=>r.d>=cs && r.d<k && (!S.tipo||r.tipo===S.tipo));
+  const ndPrev=daysIn(cs,addDays(k,-1)).length; const avgPrev = ndPrev>0 && k>cs ? prev.length/ndPrev : null;
+  const yRows = all.filter(r=>r.d===addDays(k,-1) && (!S.tipo||r.tipo===S.tipo)).length;
+  const cyc = all.filter(r=>r.d>=cs && r.d<=k && (!S.tipo||r.tipo===S.tipo));
+  const delta = (v,ref) => ref==null? "" : (v>ref ? `<span class="up">▲ ${fmt(Math.round((v-ref)*10)/10)}</span>` : v<ref ? `<span class="down">▼ ${fmt(Math.round((ref-v)*10)/10)}</span>` : "=");
+  $("#dayKpis").innerHTML = `
+    <div class="kpi"><div class="l">Ausências no dia</div><div class="v">${rows.length}</div><div class="s">${delta(rows.length, avgPrev)} ${avgPrev!=null?`vs média ${fmt(Math.round(avgPrev*10)/10)}/dia do ciclo`:"primeiro dia do ciclo"}</div></div>
+    <div class="kpi falta"><div class="l">Faltas</div><div class="v">${F}</div><div class="s">${pct(F,rows.length)}% do dia</div></div>
+    <div class="kpi atest"><div class="l">Atestados</div><div class="v">${A}</div><div class="s">${pct(A,rows.length)}% do dia</div></div>
+    <div class="kpi"><div class="l">Dia anterior</div><div class="v">${yRows}</div><div class="s">${br(addDays(k,-1))}</div></div>
+    <div class="kpi"><div class="l">Acumulado do ciclo</div><div class="v">${fmt(cyc.length)}</div><div class="s">${brShort(cs)} até ${brShort(k)}</div></div>`;
+  // reincidência no ciclo
+  const cnt = {}; cyc.forEach(r=>{ const kk=r.id||norm(r.nome); cnt[kk]=(cnt[kk]||0)+1; });
+  $("#daySub").textContent = rows.length ? `${rows.length} ${rows.length===1?"pessoa":"pessoas"} · número ao lado = ausências no ciclo até este dia` : "";
+  if (!rows.length){ $("#dayList").innerHTML = `<div class="empty">Nenhuma ausência registrada em ${br(k)}.</div>`; }
+  else {
+    const sorted=[...rows].sort((x,y)=> x.tipo===y.tipo ? x.nome.localeCompare(y.nome,"pt-BR") : (x.tipo==="FALTA"?-1:1));
+    $("#dayList").innerHTML = `<div class="namelist">${sorted.map(r=>{ const n=cnt[r.id||norm(r.nome)]||1;
+      return `<div class="namerow click" data-p="${esc(r.id||norm(r.nome))}"><span class="pill ${tipoClass(r.tipo)}">${esc(r.tipo)}</span><span class="nm" title="${esc(r.nome)}">${esc(title(r.nome))}</span><span class="badge ${n>=5?'hot':''}" title="Ausências no ciclo">${n}ª</span></div>`; }).join("")}</div>`;
+    $("#dayList").querySelectorAll("[data-p]").forEach(el=>el.addEventListener("click",()=>openPerson(el.dataset.p)));
+  }
+  const d14 = daysIn(addDays(k,-13), k);
+  const e14=$("#day14"); e14.innerHTML = stackedChart(d14, byDay(all.filter(r=>(!S.tipo||r.tipo===S.tipo))), {selected:k, h:220, fit:e14.clientWidth-2});
+  bindBars(e14); e14.scrollLeft=e14.scrollWidth;
+}
+
+/* ===== Render: CICLO ===== */
+function renderCiclo(){
+  const [a,b]=range(); const rows=filtered(); const st=stats(rows,a,b);
+  $("#cycKpis").innerHTML = `
+    <div class="kpi"><div class="l">Total de ausências</div><div class="v">${fmt(st.tot)}</div><div class="s">${br(a)} a ${br(st.end)}</div></div>
+    <div class="kpi falta"><div class="l">Faltas</div><div class="v">${fmt(st.F)}</div><div class="s">${pct(st.F,st.tot)}% do total</div></div>
+    <div class="kpi atest"><div class="l">Atestados</div><div class="v">${fmt(st.A)}</div><div class="s">${pct(st.A,st.tot)}% do total</div></div>
+    <div class="kpi"><div class="l">Pessoas</div><div class="v">${fmt(st.people)}</div><div class="s">com ao menos 1 ausência</div></div>
+    <div class="kpi"><div class="l">Média por dia</div><div class="v">${fmt(Math.round(st.avg*10)/10)}</div><div class="s">${st.nd} dias corridos</div></div>
+    <div class="kpi"><div class="l">Pior dia</div><div class="v">${st.peak?st.peak.v:"–"}</div><div class="s">${st.peak?`${br(st.peak.k)} (${WD3[wdOf(st.peak.k)]})`:""}</div></div>`;
+  const days = daysIn(a, b);
+  const el=$("#cycChart"); el.innerHTML = stackedChart(days, byDay(rows), {avg:st.avg, selected:S.day, fit:el.clientWidth-2}); bindBars(el); el.scrollLeft=el.scrollWidth;
+  // top
+  const ppl = byPerson(rows).sort((x,y)=>y.tot-x.tot || x.nome.localeCompare(y.nome,"pt-BR")).slice(0,15);
+  const mx = ppl[0]?.tot||1;
+  $("#cycTop").innerHTML = ppl.length ? `<table><thead><tr><th>Colaborador</th><th class="n">F</th><th class="n">A</th><th class="n">Total</th><th style="width:30%"></th></tr></thead><tbody>${
+    ppl.map(p=>`<tr class="click" data-p="${esc(p.key)}"><td style="text-transform:capitalize">${esc(title(p.nome))}</td><td class="n">${p.F}</td><td class="n">${p.A}</td><td class="n"><b>${p.tot}</b></td><td><div class="hbar" style="width:${Math.max(8,p.tot/mx*100)}%"><span style="width:${p.F/p.tot*100}%;background:var(--falta)"></span><span style="width:${p.A/p.tot*100}%;background:var(--atest)"></span><span style="width:${p.O/p.tot*100}%;background:var(--outro)"></span></div></td></tr>`).join("")}</tbody></table>` : `<div class="empty">Sem registros no período.</div>`;
+  $("#cycTop").querySelectorAll("[data-p]").forEach(el=>el.addEventListener("click",()=>openPerson(el.dataset.p)));
+  // dia da semana (seg→dom)
+  const wd=[1,2,3,4,5,6,0].map(w=>{ const rr=rows.filter(r=>wdOf(r.d)===w); return {w, F:rr.filter(r=>r.tipo==="FALTA").length, A:rr.filter(r=>r.tipo==="ATESTADO").length, t:rr.length}; });
+  const wmx=Math.max(1,...wd.map(x=>x.t));
+  $("#cycWd").innerHTML = wd.map(x=>`<div style="display:grid;grid-template-columns:40px 1fr 34px;gap:8px;align-items:center;margin:5px 0"><span style="font-weight:600">${WD3[x.w]}</span><div class="hbar" style="width:${Math.max(4,x.t/wmx*100)}%"><span style="width:${x.t?x.F/x.t*100:0}%;background:var(--falta)"></span><span style="width:${x.t?x.A/x.t*100:0}%;background:var(--atest)"></span><span style="width:${x.t?(x.t-x.F-x.A)/x.t*100:0}%;background:var(--outro)"></span></div><span style="text-align:right;font-variant-numeric:tabular-nums">${x.t}</span></div>`).join("");
+  // distribuição
+  const all = byPerson(rows); const b1=all.filter(p=>p.tot===1).length, b2=all.filter(p=>p.tot===2).length, b3=all.filter(p=>p.tot>=3&&p.tot<=4).length, b5=all.filter(p=>p.tot>=5);
+  $("#cycDist").innerHTML = `<div><b>${b1}</b><span>1 ausência</span></div><div><b>${b2}</b><span>2</span></div><div><b>${b3}</b><span>3 a 4</span></div><div style="background:var(--falta-soft)"><b style="color:var(--falta)">${b5.length}</b><span>5 ou mais</span></div>`;
+  const s5=b5.reduce((s,p)=>s+p.tot,0);
+  $("#cycConc").textContent = b5.length ? `${b5.length} pessoas com 5+ ausências somam ${fmt(s5)} registros (${pct(s5,st.tot)}% do período).` : "";
+}
+
+/* ===== Render: COLABORADORES ===== */
+function renderPess(){
+  const [a,b]=range(); const days=daysIn(a,b);
+  const q=norm($("#pessQ").value);
+  let ppl = byPerson(filtered());
+  if (q) ppl = ppl.filter(p=> norm(p.nome).includes(q) || String(p.id).includes(q) || String(p.mat).includes(q));
+  const {k,dir}=S.pessSort;
+  ppl.sort((x,y)=>{ const va=x[k], vb=y[k]; return (typeof va==="string"? va.localeCompare(vb,"pt-BR") : va-vb)*dir || x.nome.localeCompare(y.nome,"pt-BR"); });
+  const showStrip = days.length<=62;
+  const th=(key,lab,cls="")=>`<th class="sort ${cls}" data-k="${key}">${lab}${S.pessSort.k===key?(S.pessSort.dir>0?" ▲":" ▼"):""}</th>`;
+  $("#pessTable").innerHTML = ppl.length ? `<table><thead><tr>${th("nome","Nome")}${th("id","Groot ID")}${th("mat","Matrícula")}${th("F","Faltas","n")}${th("A","Atestados","n")}${th("tot","Total","n")}${th("last","Última")}${showStrip?"<th>Período</th>":""}</tr></thead><tbody>${
+    ppl.map(p=>{ const set={}; p.dates.forEach(x=>set[x.d]=tipoLetter(x.t));
+      return `<tr class="click" data-p="${esc(p.key)}"><td style="text-transform:capitalize;min-width:200px">${esc(title(p.nome))}</td><td class="mono">${esc(p.id)}</td><td class="mono">${esc(p.mat)}</td><td class="n">${p.F}</td><td class="n">${p.A}</td><td class="n"><b>${p.tot}</b></td><td class="mono">${brShort(p.last)}</td>${showStrip?`<td><div class="strip">${days.map(d=>`<i class="${set[d]||''}" title="${brShort(d)}${set[d]?' · '+(set[d]==='F'?'Falta':set[d]==='A'?'Atestado':'Outro'):''}"></i>`).join("")}</div></td>`:""}</tr>`; }).join("")}</tbody></table>` : `<div class="empty">Ninguém encontrado.</div>`;
+  $("#pessTable").querySelectorAll("th.sort").forEach(h=>h.addEventListener("click",()=>{ const kk=h.dataset.k; S.pessSort = {k:kk, dir: S.pessSort.k===kk ? -S.pessSort.dir : (kk==="nome"?1:-1)}; renderPess(); }));
+  $("#pessTable").querySelectorAll("tr[data-p]").forEach(el=>el.addEventListener("click",()=>openPerson(el.dataset.p)));
+}
+
+/* ===== Render: REGISTROS ===== */
+function renderReg(){
+  const q=norm($("#regQ").value);
+  let rows=filtered(); if(q) rows=rows.filter(r=>norm(r.nome).includes(q)||String(r.id).includes(q)||String(r.mat).includes(q)||norm(r.tipo).includes(q));
+  const {k,dir}=S.regSort;
+  rows=[...rows].sort((x,y)=>{ const va=x[k]??"", vb=y[k]??""; return (typeof va==="number"&&typeof vb==="number"? va-vb : String(va).localeCompare(String(vb),"pt-BR"))*dir || x.nome.localeCompare(y.nome,"pt-BR"); });
+  $("#regCount").textContent = fmt(rows.length);
+  const th=(key,lab)=>`<th class="sort" data-k="${key}">${lab}${S.regSort.k===key?(S.regSort.dir>0?" ▲":" ▼"):""}</th>`;
+  const lim=rows.slice(0,800);
+  $("#regTable").innerHTML = rows.length ? `<table><thead><tr>${th("d","Data")}${th("nome","Nome")}${th("id","Groot ID")}${th("mat","Matrícula")}${th("cargo","Cargo")}${th("tipo","Tipo")}</tr></thead><tbody>${
+    lim.map(r=>`<tr><td class="mono">${br(r.d)} <span style="opacity:.7">${WD3[wdOf(r.d)]}</span></td><td style="text-transform:capitalize;min-width:200px">${esc(title(r.nome))}</td><td class="mono">${esc(r.id)}</td><td class="mono">${esc(r.mat)||'<span class="badge hot">sem matrícula</span>'}</td><td style="font-size:13px;color:var(--muted)">${esc(r.cargo)}</td><td><span class="pill ${tipoClass(r.tipo)}">${esc(r.tipo)}</span></td></tr>`).join("")}</tbody></table>${rows.length>800?`<p class="note">Mostrando 800 de ${fmt(rows.length)}. Use a busca ou exporte para ver todos.</p>`:""}` : `<div class="empty">Sem registros.</div>`;
+  $("#regTable").querySelectorAll("th.sort").forEach(h=>h.addEventListener("click",()=>{ const kk=h.dataset.k; S.regSort={k:kk,dir:S.regSort.k===kk?-S.regSort.dir:(kk==="d"?-1:1)}; renderReg(); }));
+}
+
+/* ===== Pessoa ===== */
+function openPerson(key){
+  const rows = DATA.filter(r=>(r.id||norm(r.nome))==key || String(r.id)===String(key)).sort((a,b)=>a.d<b.d?1:-1);
+  if(!rows.length) return; const p=rows[0];
+  const [a,b]=range(); const inR=rows.filter(r=>r.d>=a&&r.d<=b);
+  const F=inR.filter(r=>r.tipo==="FALTA").length, A=inR.filter(r=>r.tipo==="ATESTADO").length;
+  $("#personBody").innerHTML = `<h3 style="text-transform:capitalize">${esc(title(p.nome))}</h3>
+    <div class="row note">Groot ID <span class="badge">${esc(p.id)||"–"}</span> Matrícula <span class="badge">${esc(p.mat)||"–"}</span> ${esc(p.cargo)}</div>
+    <div class="kpis"><div class="kpi"><div class="l">No período</div><div class="v">${inR.length}</div></div><div class="kpi falta"><div class="l">Faltas</div><div class="v">${F}</div></div><div class="kpi atest"><div class="l">Atestados</div><div class="v">${A}</div></div><div class="kpi"><div class="l">Histórico total</div><div class="v">${rows.length}</div></div></div>
+    <div class="scroll" style="max-height:300px;overflow-y:auto"><table><thead><tr><th>Data</th><th>Dia</th><th>Tipo</th></tr></thead><tbody>${rows.map(r=>`<tr${r.d<a||r.d>b?' style="opacity:.5"':''}><td class="mono">${br(r.d)}</td><td>${WD[wdOf(r.d)]}</td><td><span class="pill ${tipoClass(r.tipo)}">${esc(r.tipo)}</span></td></tr>`).join("")}</tbody></table></div>
+    <div class="row" style="justify-content:flex-end"><button id="pClose" type="button">Fechar</button></div>`;
+  $("#dlgPerson").showModal(); $("#pClose").onclick=()=>$("#dlgPerson").close();
+}
+
+/* ===== Base de colaboradores ===== */
+const idKey = v => String(v ?? "").trim().replace(/\.0$/,"");
+const toId = v => { const s=idKey(v); return /^\d+$/.test(s) ? Number(s) : s; };
+let BASE_IDX = new Map();
+function baseFromRecords(rows){ const m=new Map(); rows.forEach(r=>{ if(!r.id) return; m.set(idKey(r.id),{id:r.id,nome:r.nome,mat:r.mat||m.get(idKey(r.id))?.mat||"",cargo:r.cargo}); }); return [...m.values()]; }
+function loadBase(){ const b=store.get("base",null); BASE = b?.list?.length ? b.list : baseFromRecords(fromSeed()); BASE_IDX=new Map(BASE.filter(p=>idKey(p.id)).map(p=>[idKey(p.id),p])); $("#baseCount").textContent=fmt(BASE.length);
+  $("#baseInfo").textContent = b?.list?.length ? `Lista atual: ${fmt(BASE.length)} colaboradores (${esc(b.name)}, importada em ${new Date(b.at).toLocaleString("pt-BR")}).` : `Ainda sem lista importada. Por enquanto o app usa as ${fmt(BASE.length)} pessoas que aparecem na planilha de faltas.`; }
+function parseBase(aoa){
+  let h=-1,map={};
+  for(let i=0;i<Math.min(aoa.length,30);i++){ const row=(aoa[i]||[]).map(norm);
+    const iN=row.findIndex(c=>c==="NOME"||c.startsWith("NOME")||c==="COLABORADOR"); const iI=row.findIndex(c=>c.startsWith("GROO")||c==="ID"||c==="GROOT");
+    if(iN>=0&&iI>=0){ h=i; map={nome:iN,id:iI,mat:row.findIndex(c=>c.startsWith("MATR")),cargo:row.findIndex(c=>c==="CARGO"||c.startsWith("CARGO")||c.startsWith("FUNC")),sit:row.findIndex(c=>c.startsWith("SITUA")||c==="STATUS")}; break; } }
+  if(h<0) throw new Error("Não achei as colunas GROO ID e NOME na lista.");
+  const out=[]; for(let i=h+1;i<aoa.length;i++){ const r=aoa[i]||[]; const nome=String(r[map.nome]??"").trim(); const id=toId(r[map.id]); if(!nome) continue;
+    out.push({id,nome,mat:map.mat>=0?toId(r[map.mat]):"",cargo:map.cargo>=0?String(r[map.cargo]??"").trim():"",sit:map.sit>=0?String(r[map.sit]??"").trim():""}); }
+  if(!out.length) throw new Error("A lista está vazia.");
+  return out;
+}
+function knownMat(id, nome){
+  const k=idKey(id), n=norm(nome);
+  const hit = DATA.find(r=>r.mat && ((k && idKey(r.id)===k) || norm(r.nome)===n)) || (BASE||[]).find(p=>p.mat && ((k && idKey(p.id)===k)));
+  return hit ? hit.mat : "";
+}
+function saveBaseList(list, name){
+  let filled=0; list.forEach(p=>{ if(!p.mat){ const m=knownMat(p.id,p.nome); if(m){ p.mat=m; filled++; } } });
+  store.set("base",{list,name,at:Date.now()}); loadBase();
+  const noId=list.filter(p=>!idKey(p.id)).length, noMat=list.filter(p=>!p.mat).length;
+  toast(`Lista carregada: ${fmt(list.length)} colaboradores${filled?` · ${filled} matrículas puxadas do histórico`:""}${noMat?` · ${noMat} sem matrícula`:""}${noId?` · ${noId} sem Groot ID`:""}`);
+}
+async function handleBaseFile(f){
+  try{ const buf=await f.arrayBuffer();
+    const wb=/\.csv$/i.test(f.name)?XLSX.read(new TextDecoder("utf-8").decode(buf),{type:"string",raw:true}):XLSX.read(buf,{type:"array",raw:true});
+    let list=null,err; for(const n of wb.SheetNames){ try{ list=parseBase(XLSX.utils.sheet_to_json(wb.Sheets[n],{header:1,raw:true,defval:""})); break; }catch(e){err=e;} }
+    if(!list) throw err;
+    if($("#baseMode").value==="merge"){ const m=new Map(BASE.map(p=>[idKey(p.id)||norm(p.nome),p])); list.forEach(p=>m.set(idKey(p.id)||norm(p.nome),p)); list=[...m.values()]; }
+    saveBaseList(list,f.name); render();
+  }catch(e){ toast("Erro: "+e.message); }
+}
+
+/* ===== Lançamento diário ===== */
+function saveLocal(){ store.set("launch",LOCAL); }
+function unvalidate(d){ if(VALID[d]){ delete VALID[d]; store.set("valid",VALID); } }
+function afterChange(d){ unvalidate(d); saveLocal(); recompute(); rebuildFilters(); renderLanc(); }
+function putRecord(rec){ LOCAL=LOCAL.filter(x=>rowKey(x)!==rowKey(rec)); LOCAL.push(rec); }
+function addAbsence(p, tipo){
+  const d=S.lday; const rec={id:p.id,nome:p.nome,mat:p.mat||knownMat(p.id,p.nome),cargo:p.cargo,d,tipo};
+  if(p.sit && norm(p.sit)!=="ATIVO") setTimeout(()=>toast(`Atenção: ${title(p.nome)} está como ${p.sit} na lista`),400);
+  const kk=rowKey(rec); if(DATA.some(r=>rowKey(r)===kk) || LOCAL.some(r=>!r.del && rowKey(r)===kk)){ return "dup"; }
+  putRecord(rec); return "ok";
+}
+function changeTipo(key,tipo){ const r=DATA.find(x=>rowKey(x)===key); if(!r) return; putRecord({...r,tipo}); afterChange(r.d); }
+function removeRec(key){ const r=DATA.find(x=>rowKey(x)===key); if(!r) return;
+  const inSrc=SRC.some(x=>rowKey(x)===key);
+  LOCAL=LOCAL.filter(x=>rowKey(x)!==key); if(inSrc) LOCAL.push({...r,del:true});
+  afterChange(r.d); toast(`${title(r.nome)} removido(a) de ${brShort(r.d)}`); }
+function lancInput(){
+  const raw=$("#lId").value.trim(); if(!raw) return;
+  const msg=$("#lMsg");
+  // cada linha pode ter só o ID, ou ID + nome/tipo copiados do Excel; várias IDs na mesma linha também valem
+  const items=[];
+  raw.split(/\r?\n/).forEach(line=>{ const ids=line.match(/\b\d{4,}\b/g); if(!ids) return; const t=norm(line);
+    const tipo = t.includes("ATEST") ? "ATESTADO" : /\bFALTA\b/.test(t) ? "FALTA" : null;
+    const onlyIds = line.replace(/[\d\s,;]+/g,"")==="";
+    (onlyIds ? ids : [ids[0]]).forEach(id=>items.push({id,tipo})); });
+  if(items.length){
+    let ok=0,dup=[],miss=[],cA=0,cF=0;
+    items.forEach(({id,tipo})=>{ const p=BASE_IDX.get(id); if(!p){ if(!miss.includes(id)) miss.push(id); return; } const tp=tipo||S.ltipo; const r=addAbsence(p,tp); if(r==="ok"){ ok++; tp==="ATESTADO"?cA++:cF++; } else dup.push(p.nome); });
+    $("#lId").value="";
+    afterChange(S.lday);
+    let h="";
+    if(ok) h+=`<p class="note" style="margin:0;color:var(--ok);font-weight:600">${ok} ${ok===1?"pessoa adicionada":"pessoas adicionadas"} (${cF} falta · ${cA} atestado).</p>`;
+    if(dup.length) h+=`<p class="note" style="margin:0">Já estava na lista: ${[...new Set(dup)].map(n=>esc(title(n))).join(", ")}.</p>`;
+    if(miss.length) h+=miss.map(id=>`<div class="warnbox" data-miss="${esc(id)}"><b>Groot ID ${esc(id)} não está na lista de colaboradores.</b>
+      <div class="row"><input type="text" placeholder="Nome completo" class="mNome" style="flex:2;min-width:160px"><input type="text" placeholder="Matrícula" class="mMat" style="width:110px"><input type="text" class="mCargo" value="${esc(mostCargo())}" style="flex:1;min-width:140px"></div>
+      <div class="row"><button class="primary mAdd" type="button">Cadastrar e lançar</button><button class="ghost mX" type="button">Ignorar</button></div></div>`).join("");
+    msg.innerHTML=h; bindMiss(); $("#lId").focus();
+    return;
+  }
+  // busca por nome
+  const q=norm(raw); if(q.length<3){ msg.innerHTML=`<p class="note" style="margin:0">Digite pelo menos 3 letras do nome.</p>`; return; }
+  const hits=BASE.filter(p=>norm(p.nome).includes(q)).slice(0,10);
+  msg.innerHTML = hits.length ? `<p class="note" style="margin:0 0 6px">Clique para lançar como ${S.ltipo}:</p><div class="sugg">${hits.map(p=>`<button type="button" data-id="${esc(idKey(p.id))}" data-nm="${esc(norm(p.nome))}">${esc(title(p.nome))} <span class="badge">${esc(p.id)||"sem ID"}</span>${p.sit&&norm(p.sit)!=="ATIVO"?` <span class="badge hot">${esc(p.sit)}</span>`:""}</button>`).join("")}</div>`
+    : `<p class="note" style="margin:0">Ninguém com "${esc(raw)}" na lista.</p>`;
+  msg.querySelectorAll("[data-id]").forEach(b=>b.addEventListener("click",()=>{ const p=BASE_IDX.get(b.dataset.id)||BASE.find(x=>!idKey(x.id)&&norm(x.nome)===b.dataset.nm); const r=addAbsence(p,S.ltipo); afterChange(S.lday); $("#lId").value=""; msg.innerHTML=r==="ok"?`<p class="note" style="margin:0;color:var(--ok);font-weight:600">${esc(title(p.nome))} adicionado(a).</p>`:`<p class="note" style="margin:0">${esc(title(p.nome))} já estava na lista.</p>`; $("#lId").focus(); }));
+}
+function mostCargo(){ const c={}; BASE.forEach(p=>{ if(p.cargo) c[p.cargo]=(c[p.cargo]||0)+1; }); return Object.entries(c).sort((a,b)=>b[1]-a[1])[0]?.[0]||""; }
+function bindMiss(){
+  document.querySelectorAll("[data-miss]").forEach(box=>{
+    box.querySelector(".mX").onclick=()=>box.remove();
+    box.querySelector(".mAdd").onclick=()=>{ const nome=box.querySelector(".mNome").value.trim(); if(!nome){ box.querySelector(".mNome").focus(); return; }
+      const p={id:toId(box.dataset.miss),nome,mat:toId(box.querySelector(".mMat").value),cargo:box.querySelector(".mCargo").value.trim()};
+      const b=store.get("base",null); const list=[...BASE.filter(x=>idKey(x.id)!==idKey(p.id)),p];
+      store.set("base",{list,name:b?.name||"cadastros manuais",at:b?.at||Date.now()}); loadBase();
+      addAbsence(p,S.ltipo); afterChange(S.lday); box.remove(); toast(`${title(nome)} cadastrado(a) e lançado(a)`); };
+  });
+}
+function renderLanc(){
+  const k=S.lday; $("#lPick").value=k; $("#lBig").textContent=br(k); $("#lWd").textContent=WD[wdOf(k)];
+  const rows=DATA.filter(r=>r.d===k).sort((a,b)=> a.tipo===b.tipo ? a.nome.localeCompare(b.nome,"pt-BR") : (a.tipo==="FALTA"?-1:1));
+  const F=rows.filter(r=>r.tipo==="FALTA").length, A=rows.filter(r=>r.tipo==="ATESTADO").length;
+  $("#lF").textContent=F; $("#lA").textContent=A; $("#lT").textContent=rows.length; $("#lCount").textContent=rows.length;
+  const st=$("#lStatus"); if(VALID[k]){ st.className="status ok"; st.textContent="Validado "+new Date(VALID[k]).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}); $("#lValid").textContent="Validado ✓"; }
+  else { st.className="status pend"; st.textContent="Pendente de validação"; $("#lValid").textContent="Validar dia"; }
+  document.querySelectorAll("#lTipo button").forEach(b=>b.setAttribute("aria-pressed",b.dataset.t===S.ltipo));
+  $("#baseCount").textContent=fmt(BASE.length);
+  const cs=cycleStart(k), ce=cycleEnd(cs); $("#lCycLab").innerHTML=`Ciclo da fatura <b>${brShort(cs)} → ${br(ce)}</b>`;
+  $("#lExpCyc").textContent=`Exportar fatura ${brShort(cs)} → ${brShort(ce)}`;
+  const dm=byDay(DATA.filter(r=>r.d>=cs&&r.d<=ce)); const today=todayKey();
+  $("#lCal").innerHTML=daysIn(cs,ce).map(d=>{ const v=dm[d]; const cls=[VALID[d]?"ok":v?"pend":"", d>today?"fut":"", d===k?"cur":""].join(" ");
+    return `<button type="button" class="${cls}" data-d="${d}" title="${br(d)} ${WD[wdOf(d)]}${v?` · ${v.t} ABS (${v.F} F / ${v.A} A)`:""}${VALID[d]?" · validado":""}"><b>${d.slice(8)}</b><small>${v?v.t:"–"}</small></button>`; }).join("");
+  $("#lCal").querySelectorAll("[data-d]").forEach(b=>b.addEventListener("click",()=>{ S.lday=b.dataset.d; $("#lMsg").innerHTML=""; renderLanc(); }));
+  if(!rows.length){ $("#lTable").innerHTML=`<div class="empty">Nenhuma ausência lançada em ${br(k)}. Digite o Groot ID acima para começar.</div>`; return; }
+  $("#lTable").innerHTML=`<table><thead><tr><th class="n">#</th><th>Groot ID</th><th>Nome</th><th>Matrícula</th><th>Cargo</th><th>Data ausência</th><th>Tipo de falta</th><th></th></tr></thead><tbody>${
+    rows.map((r,i)=>`<tr><td class="n mono">${i+1}</td><td class="mono">${esc(r.id)}</td><td style="min-width:220px">${esc(r.nome)}</td><td class="mono">${r.mat?esc(r.mat):`<input type="text" class="matIn" data-k="${esc(rowKey(r))}" placeholder="digitar matrícula" inputmode="numeric" style="width:130px;font-size:13px;padding:5px 8px;border-color:var(--warn)">`}</td><td style="font-size:13px;color:var(--muted)">${esc(r.cargo)}</td><td class="mono">${br(r.d)}</td>
+      <td><select class="tsel ${tipoClass(r.tipo)}" data-k="${esc(rowKey(r))}" aria-label="Tipo de falta de ${esc(r.nome)}"><option${r.tipo==="FALTA"?" selected":""}>FALTA</option><option${r.tipo==="ATESTADO"?" selected":""}>ATESTADO</option>${r.tipo!=="FALTA"&&r.tipo!=="ATESTADO"?`<option selected>${esc(r.tipo)}</option>`:""}</select></td>
+      <td><button class="del" data-del="${esc(rowKey(r))}" title="Remover" aria-label="Remover ${esc(r.nome)}">✕</button></td></tr>`).join("")}</tbody>
+    <tfoot><tr><td></td><td></td><td colspan="4" style="font-weight:700;text-align:right">TOTAL ${rows.length}</td><td colspan="2" class="note">${F} falta · ${A} atestado</td></tr></tfoot></table>`;
+  $("#lTable").querySelectorAll("select.tsel").forEach(s=>s.addEventListener("change",()=>changeTipo(s.dataset.k,s.value)));
+  $("#lTable").querySelectorAll("[data-del]").forEach(b=>b.addEventListener("click",()=>removeRec(b.dataset.del)));
+  $("#lTable").querySelectorAll("input.matIn").forEach(inp=>{ const save=()=>{ const v=inp.value.trim(); if(!v||inp._done) return; inp._done=true; setTimeout(()=>doSave(v),0); }; const doSave=(v)=>{ const r=DATA.find(x=>rowKey(x)===inp.dataset.k); if(!r) return;
+      const mat=toId(v); putRecord({...r,mat});
+      const b=store.get("base",null); const list=BASE.map(p=>((idKey(p.id)&&idKey(p.id)===idKey(r.id))||(!idKey(p.id)&&norm(p.nome)===norm(r.nome)))?{...p,mat}:p);
+      store.set("base",{list,name:b?.name||"lista",at:b?.at||Date.now()}); loadBase(); afterChange(r.d); toast(`Matrícula salva para ${title(r.nome)}`); };
+    inp.addEventListener("keydown",e=>{ if(e.key==="Enter") save(); }); inp.addEventListener("change",save); });
+}
+
+/* ===== Abas / render ===== */
+function setTab(t){ S.tab=t; store.set("tab",t); document.querySelectorAll(".tabs button").forEach(b=>b.setAttribute("aria-selected", b.dataset.tab===t)); ["lanc","dia","ciclo","pess","reg"].forEach(x=>$("#tab-"+x).hidden = x!==t); render(); }
+function renderSource(){
+  const dot=$("#srcDot"), tx=$("#srcText");
+  const ds=DATA.map(r=>r.d).sort();
+  const span = ds.length ? ` · ${fmt(DATA.length)} registros de ${br(ds[0])} a ${br(ds[ds.length-1])}` : "";
+  dot.className="dot "+(SOURCE.kind==="sheet"?(SOURCE.err?"err":"live"):SOURCE.kind==="file"?"file":"");
+  const at = SOURCE.at ? ` · atualizado ${new Date(SOURCE.at).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"})}` : "";
+  tx.innerHTML = (SOURCE.kind==="sheet" ? `Google Sheets${SOURCE.err?` <b style="color:var(--falta)">(${esc(SOURCE.err)})</b>`:""}` : SOURCE.kind==="file" ? `Arquivo: ${esc(SOURCE.label)}` : `Dados de ${esc(SEED_NAME)}`) + span + at;
+  $("#btnRefresh").hidden = SOURCE.kind!=="sheet";
+}
+function render(){
+  renderSource();
+  $("#customWrap").hidden = S.cycle!=="custom";
+  if (S.tab==="lanc"){ renderLanc(); return; }
+  if (!DATA.length){ return; }
+  if (S.tab==="dia") renderDia(); else if (S.tab==="ciclo") renderCiclo(); else if (S.tab==="pess") renderPess(); else renderReg();
+}
+
+/* ===== Exportações ===== */
+function fileStamp(){ const [a,b]=range(); return `${br(a).replace(/\//g,".")}_a_${br(b).replace(/\//g,".")}`; }
+function exportXlsx(){
+  const [a,b]=range(); const rows=filtered().sort((x,y)=>x.d<y.d?-1:x.d>y.d?1:x.nome.localeCompare(y.nome,"pt-BR")); const st=stats(rows,a,b);
+  const wb=XLSX.utils.book_new();
+  const resumo=[["RESUMO DE AUSÊNCIAS"],["Período",`${br(a)} a ${br(b)}`],["Gerado em",new Date().toLocaleString("pt-BR")],[],
+    ["Total de ausências",st.tot],["Faltas",st.F],["Atestados",st.A],["Outros",st.O],["Pessoas com ausência",st.people],["Média por dia",Math.round(st.avg*10)/10],["Pior dia",st.peak?`${br(st.peak.k)} (${st.peak.v})`:""]];
+  const ws1=XLSX.utils.aoa_to_sheet(resumo); ws1["!cols"]=[{wch:26},{wch:28}]; XLSX.utils.book_append_sheet(wb,ws1,"Resumo");
+  const dm=byDay(rows); const pd=[["Data","Dia da semana","Faltas","Atestados","Outros","Total"]];
+  daysIn(a,b).forEach(k=>{ const v=dm[k]||{F:0,A:0,O:0,t:0}; pd.push([br(k),WD[wdOf(k)],v.F,v.A,v.O,v.t]); });
+  pd.push(["TOTAL","",st.F,st.A,st.O,st.tot]);
+  const ws2=XLSX.utils.aoa_to_sheet(pd); ws2["!cols"]=[{wch:12},{wch:14},{wch:8},{wch:10},{wch:8},{wch:8}]; XLSX.utils.book_append_sheet(wb,ws2,"Por dia");
+  const ppl=byPerson(rows).sort((x,y)=>y.tot-x.tot||x.nome.localeCompare(y.nome,"pt-BR"));
+  const pp=[["Groot ID","Nome","Matrícula","Cargo","Faltas","Atestados","Outros","Total","Datas"]];
+  ppl.forEach(p=>pp.push([p.id,p.nome,p.mat,p.cargo,p.F,p.A,p.O,p.tot,p.dates.map(x=>`${brShort(x.d)}(${tipoLetter(x.t)})`).join(", ")]));
+  const ws3=XLSX.utils.aoa_to_sheet(pp); ws3["!cols"]=[{wch:10},{wch:42},{wch:10},{wch:22},{wch:7},{wch:9},{wch:7},{wch:7},{wch:80}]; XLSX.utils.book_append_sheet(wb,ws3,"Por colaborador");
+  const rg=[["GROO ID","NOME","MATRICULA","CARGO","DATA AUSENCIA","DIA","TIPO DE FALTA"]];
+  rows.forEach(r=>rg.push([r.id,r.nome,r.mat,r.cargo,br(r.d),WD3[wdOf(r.d)],r.tipo]));
+  const ws4=XLSX.utils.aoa_to_sheet(rg); ws4["!cols"]=[{wch:10},{wch:42},{wch:10},{wch:22},{wch:13},{wch:5},{wch:12}]; ws4["!autofilter"]={ref:`A1:G${rg.length}`}; XLSX.utils.book_append_sheet(wb,ws4,"Registros");
+  XLSX.writeFile(wb,`Ausencias_${fileStamp()}.xlsx`); toast("Excel gerado");
+}
+function exportOrig(fa,fb){
+  // mesmo layout da planilha de fatura: blocos por dia + linha TOTAL N, e totais no canto
+  const src = fa ? DATA.filter(r=>r.d>=fa && r.d<=fb) : filtered();
+  if(!src.length){ toast("Nenhum registro nesse período"); return; }
+  const rows=src.sort((x,y)=>x.d<y.d?-1:x.d>y.d?1:x.nome.localeCompare(y.nome,"pt-BR"));
+  const aoa=[["GROO ID","NOME","MATRICULA","CARGO","DATA AUSENCIA","TIPO DE FALTA"]];
+  let cur=null,c=0;
+  const flush=()=>{ if(cur){ aoa.push(["","","","","",`TOTAL ${c}`]); } };
+  rows.forEach(r=>{ if(r.d!==cur){ flush(); cur=r.d; c=0; } const dt=parseKey(r.d); aoa.push([r.id,r.nome,r.mat,r.cargo,new Date(dt.getUTCFullYear(),dt.getUTCMonth(),dt.getUTCDate()),r.tipo]); c++; });
+  flush();
+  const ws=XLSX.utils.aoa_to_sheet(aoa,{cellDates:true,dateNF:"dd/mm/yyyy"});
+  const n=aoa.length;
+  XLSX.utils.sheet_add_aoa(ws,[["TOTAL FALTA",{f:`COUNTIF(F2:F${n},"FALTA")`}],["TOTAL ATESTADO",{f:`COUNTIF(F2:F${n},"ATESTADO")`}],["TOTAL DE ABS",{f:"L4+L5"}]],{origin:"K4"});
+  for(let i=2;i<=n;i++){ const c=ws["E"+i]; if(c && c.t==="d"){ c.z="dd/mm/yyyy"; } }
+  ws["!cols"]=[{wch:10},{wch:42},{wch:10},{wch:22},{wch:14},{wch:14},{},{},{},{},{wch:16},{wch:8}];
+  const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,"Planilha1");
+  const b = fb || range()[1];
+  const nome = fa && fa===fb ? `FALTA ${br(fa).replace(/\//g,".")}.xlsx` : `FALTA FATURA ${br(b).replace(/\//g,".")}.xlsx`;
+  XLSX.writeFile(wb,nome,{cellDates:true}); toast(`${nome} gerado (${rows.length} registros)`);
+}
+function exportCsv(){
+  const rows=filtered().sort((x,y)=>x.d<y.d?-1:1);
+  const ws=XLSX.utils.aoa_to_sheet([["GROO ID","NOME","MATRICULA","CARGO","DATA AUSENCIA","TIPO DE FALTA"],...rows.map(r=>[r.id,r.nome,r.mat,r.cargo,br(r.d),r.tipo])]);
+  const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,"Registros");
+  XLSX.writeFile(wb,`Ausencias_${fileStamp()}.csv`,{bookType:"csv",FS:";"}); toast("CSV gerado");
+}
+function exportPdf(){
+  const [a,b]=range(); const rows=filtered(); const st=stats(rows,a,b); const dm=byDay(rows);
+  const ppl=byPerson(rows).sort((x,y)=>y.tot-x.tot||x.nome.localeCompare(y.nome,"pt-BR")).slice(0,25);
+  const days=daysIn(a,b);
+  $("#printReport").innerHTML = `<h1>Relatório de Faltas e Atestados</h1><div class="note">Período ${br(a)} a ${br(b)} · gerado em ${new Date().toLocaleString("pt-BR")}${S.tipo?` · tipo: ${esc(S.tipo)}`:""}</div>
+   <div class="kpis pb" style="margin-top:10px">${[["Total",st.tot],["Faltas",st.F],["Atestados",st.A],["Pessoas",st.people],["Média/dia",Math.round(st.avg*10)/10],["Pior dia",st.peak?`${st.peak.v} (${brShort(st.peak.k)})`:"–"]].map(([l,v])=>`<div class="kpi"><div class="l">${l}</div><div class="v">${fmt(v)}</div></div>`).join("")}</div>
+   <h2>Ausências por dia</h2><div class="pb">${stackedChart(days,dm,{avg:st.avg,h:200,bw:days.length>31?10:16,gap:days.length>31?3:5}).replace(/width="\d+"/,'width="100%"')}</div>
+   <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+     <div class="pb"><h2>Por dia</h2><table><thead><tr><th>Data</th><th>Dia</th><th class="n">F</th><th class="n">A</th><th class="n">Total</th></tr></thead><tbody>${days.map(k=>{const v=dm[k]||{F:0,A:0,t:0};return `<tr><td>${br(k)}</td><td>${WD3[wdOf(k)]}</td><td class="n">${v.F}</td><td class="n">${v.A}</td><td class="n"><b>${v.t}</b></td></tr>`;}).join("")}</tbody></table></div>
+     <div class="pb"><h2>Top 25 colaboradores</h2><table><thead><tr><th>Nome</th><th class="n">F</th><th class="n">A</th><th class="n">Total</th></tr></thead><tbody>${ppl.map(p=>`<tr><td style="text-transform:capitalize">${esc(title(p.nome))}</td><td class="n">${p.F}</td><td class="n">${p.A}</td><td class="n"><b>${p.tot}</b></td></tr>`).join("")}</tbody></table></div>
+   </div>`;
+  setTimeout(()=>window.print(),60);
+}
+function wppText(k){
+  k = k || S.day || lastDayWithData();
+  const all=DATA.filter(r=>(!S.cargo||r.cargo===S.cargo));
+  const rows=all.filter(r=>r.d===k);
+  const F=rows.filter(r=>r.tipo==="FALTA").sort((a,b)=>a.nome.localeCompare(b.nome,"pt-BR")), A=rows.filter(r=>r.tipo==="ATESTADO").sort((a,b)=>a.nome.localeCompare(b.nome,"pt-BR"));
+  const O=rows.filter(r=>r.tipo!=="FALTA"&&r.tipo!=="ATESTADO");
+  const cs=cycleStart(k), cyc=all.filter(r=>r.d>=cs&&r.d<=k);
+  const cF=cyc.filter(r=>r.tipo==="FALTA").length, cA=cyc.filter(r=>r.tipo==="ATESTADO").length;
+  let t=`*AUSÊNCIAS – ${br(k)} (${WD[wdOf(k)]})*\n\n`;
+  t+=`Total: *${rows.length}*  |  Faltas: *${F.length}*  |  Atestados: *${A.length}*\n`;
+  t+=`Acumulado fatura ${brShort(cs)}→${brShort(k)}: *${cyc.length}* (${cF} F / ${cA} A)\n`;
+  if(F.length) t+=`\n🔴 *Faltas*\n`+F.map(r=>`• ${title(r.nome)}`).join("\n")+"\n";
+  if(A.length) t+=`\n🔵 *Atestados*\n`+A.map(r=>`• ${title(r.nome)}`).join("\n")+"\n";
+  if(O.length) t+=`\n⚪ *Outros*\n`+O.map(r=>`• ${title(r.nome)} (${r.tipo})`).join("\n")+"\n";
+  return t.trim();
+}
+function openWpp(k){ const t=wppText(typeof k==="string"?k:undefined); $("#wppText").value=t; $("#wppOpen").href="https://wa.me/?text="+encodeURIComponent(t); $("#dlgWpp").showModal(); }
+async function copyText(t){ try{ await navigator.clipboard.writeText(t); toast("Copiado"); }catch(e){ const ta=$("#wppText"); ta.value=t; ta.select(); try{document.execCommand("copy"); toast("Copiado");}catch(_){ toast("Selecione e copie o texto"); } } }
+
+/* ===== Google Sheets ===== */
+let sheetTimer=null;
+function sheetCsvUrl(u){
+  u=u.trim(); if(!u) return null;
+  if (/output=csv|format=csv|tqx=out:csv/.test(u)) return u;
+  const m=u.match(/\/spreadsheets\/d\/(?:e\/)?([a-zA-Z0-9-_]+)/); if(!m) return null;
+  const gid=(u.match(/[#&?]gid=(\d+)/)||[])[1];
+  if (u.includes("/d/e/")) return `https://docs.google.com/spreadsheets/d/e/${m[1]}/pub?output=csv${gid?`&gid=${gid}`:""}`;
+  return `https://docs.google.com/spreadsheets/d/${m[1]}/gviz/tq?tqx=out:csv${gid?`&gid=${gid}`:""}`;
+}
+async function pullSheet(silent){
+  const cfg=store.get("sheet",null); if(!cfg) return;
+  const url=sheetCsvUrl(cfg.url); if(!url){ if(!silent) toast("Link inválido"); return; }
+  try{
+    const res=await fetch(url+(url.includes("?")?"&":"?")+"_="+Date.now(),{cache:"no-store"});
+    if(!res.ok) throw new Error("HTTP "+res.status);
+    const txt=await res.text();
+    if (/^\s*<(!doctype|html)/i.test(txt)) throw new Error("planilha não está compartilhada");
+    const wb=XLSX.read(txt,{type:"string",raw:true});
+    const {rows}=workbookToRows(wb);
+    const keepDay=S.day, keepCycle=S.cycle;
+    setData(rows,{kind:"sheet",label:"Google Sheets",at:Date.now()},"replace");
+    if(silent){ S.day=keepDay; S.cycle=keepCycle; rebuildFilters(); render(); }
+    store.set("sheetCache",{rows,at:Date.now()});
+    if(!silent) toast(`Planilha carregada: ${fmt(rows.length)} registros`);
+    return true;
+  }catch(e){
+    const c=store.get("sheetCache",null);
+    if(c && !SRC.length){ SRC=c.rows; recompute(); }
+    SOURCE={kind:"sheet",label:"Google Sheets",at:c?c.at:null,err:"sem conexão: "+e.message};
+    rebuildFilters(); render();
+    if(!silent) toast("Não consegui ler a planilha: "+e.message);
+    return false;
+  }
+}
+function startSheetTimer(){ clearInterval(sheetTimer); const cfg=store.get("sheet",null); if(cfg && +cfg.every>0) sheetTimer=setInterval(()=>pullSheet(true), +cfg.every*60000); }
+
+/* ===== Importação de arquivo ===== */
+async function handleFile(f){
+  try{
+    const buf=await f.arrayBuffer();
+    const wb = /\.csv$/i.test(f.name) ? XLSX.read(new TextDecoder("utf-8").decode(buf),{type:"string",raw:true}) : XLSX.read(buf,{type:"array",raw:true});
+    const {rows,skipped,sheet}=workbookToRows(wb);
+    const mode=$("#impMode").value;
+    if (store.get("sheet",null)) { store.set("sheet",null); clearInterval(sheetTimer); }
+    setData(rows,{kind:"file",label:f.name,at:Date.now()},mode);
+    $("#dlgImport").close();
+    toast(`${fmt(rows.length)} registros lidos da aba "${sheet}"${skipped?` · ${skipped} sem data ignorados`:""}`);
+  }catch(e){
+    // sem coluna de data: provavelmente é a lista de colaboradores (ex.: Headcount GRUPOS)
+    try{
+      const buf=await f.arrayBuffer();
+      const wb=/\.csv$/i.test(f.name)?XLSX.read(new TextDecoder("utf-8").decode(buf),{type:"string",raw:true}):XLSX.read(buf,{type:"array",raw:true});
+      let list=null; for(const n of wb.SheetNames){ try{ list=parseBase(XLSX.utils.sheet_to_json(wb.Sheets[n],{header:1,raw:true,defval:""})); break; }catch(_){} }
+      if(!list) throw e;
+      saveBaseList(list,f.name); $("#dlgImport").close(); setTab("lanc");
+    }catch(e2){ toast("Erro: "+e.message); }
+  }
+}
+
+/* ===== Eventos ===== */
+document.querySelectorAll(".tabs button").forEach(b=>b.addEventListener("click",()=>setTab(b.dataset.tab)));
+$("#cycleSel").addEventListener("change",e=>{ S.cycle=e.target.value; if(S.cycle!=="custom"&&S.cycle!=="all"){ const [a,b]=range(); if(!S.day||S.day<a||S.day>b) S.day=null; } render(); });
+$("#dFrom").addEventListener("change",e=>{ S.from=e.target.value||null; render(); });
+$("#dTo").addEventListener("change",e=>{ S.to=e.target.value||null; render(); });
+$("#tipoSel").addEventListener("change",e=>{ S.tipo=e.target.value; render(); });
+$("#cargoSel").addEventListener("change",e=>{ S.cargo=e.target.value; render(); });
+$("#prevDay").addEventListener("click",()=>{ S.day=addDays(S.day,-1); syncCycleToDay(); render(); });
+$("#nextDay").addEventListener("click",()=>{ S.day=addDays(S.day,1); syncCycleToDay(); render(); });
+$("#dayPick").addEventListener("change",e=>{ if(e.target.value){ S.day=e.target.value; syncCycleToDay(); render(); } });
+$("#lastDay").addEventListener("click",()=>{ S.day=DATA.map(r=>r.d).sort().pop(); syncCycleToDay(); render(); });
+$("#dayWpp").addEventListener("click",openWpp);
+function syncCycleToDay(){ if(S.cycle==="all"||S.cycle==="custom") return; const cs=cycleStart(S.day); if([...$("#cycleSel").options].some(o=>o.value===cs)){ S.cycle=cs; $("#cycleSel").value=cs; } }
+$("#pessQ").addEventListener("input",renderPess);
+$("#lPrev").addEventListener("click",()=>{ S.lday=addDays(S.lday,-1); $("#lMsg").innerHTML=""; renderLanc(); });
+$("#lNext").addEventListener("click",()=>{ S.lday=addDays(S.lday,1); $("#lMsg").innerHTML=""; renderLanc(); });
+$("#lToday").addEventListener("click",()=>{ S.lday=todayKey(); renderLanc(); });
+$("#lPick").addEventListener("change",e=>{ if(e.target.value){ S.lday=e.target.value; $("#lMsg").innerHTML=""; renderLanc(); } });
+document.querySelectorAll("#lTipo button").forEach(b=>b.addEventListener("click",()=>{ S.ltipo=b.dataset.t; renderLanc(); $("#lId").focus(); }));
+$("#lId").addEventListener("keydown",e=>{ if(e.key==="Enter" && !e.shiftKey){ e.preventDefault(); lancInput(); } });
+$("#lAdd").addEventListener("click",lancInput);
+$("#lValid").addEventListener("click",()=>{ const k=S.lday; if(VALID[k]){ toast("Dia já validado"); return; } VALID[k]=Date.now(); store.set("valid",VALID); renderLanc(); toast(`${br(k)} validado`); });
+$("#lWpp").addEventListener("click",()=>openWpp(S.lday));
+$("#lExpDay").addEventListener("click",()=>{ if(typeof XLSX==="undefined"){ toast("Biblioteca de Excel não carregou."); return; } exportOrig(S.lday,S.lday); });
+$("#lExpCyc").addEventListener("click",()=>{ if(typeof XLSX==="undefined"){ toast("Biblioteca de Excel não carregou."); return; } const cs=cycleStart(S.lday); exportOrig(cs,cycleEnd(cs)); });
+$("#btnBase").addEventListener("click",()=>{ loadBase(); $("#dlgBase").showModal(); });
+$("#baseClose").addEventListener("click",()=>$("#dlgBase").close());
+$("#pickBase").addEventListener("click",()=>$("#baseIn").click());
+$("#baseIn").addEventListener("change",e=>{ const f=e.target.files[0]; if(f) handleBaseFile(f).then(()=>$("#dlgBase").close()); e.target.value=""; });
+const dropB=$("#dropBase");
+["dragenter","dragover"].forEach(ev=>dropB.addEventListener(ev,e=>{e.preventDefault();dropB.classList.add("over");}));
+["dragleave","drop"].forEach(ev=>dropB.addEventListener(ev,e=>{e.preventDefault();dropB.classList.remove("over");}));
+dropB.addEventListener("drop",e=>{ const f=e.dataTransfer.files[0]; if(f) handleBaseFile(f).then(()=>$("#dlgBase").close()); });
+$("#baseExp").addEventListener("click",()=>{ const ws=XLSX.utils.aoa_to_sheet([["GROO ID","NOME","MATRICULA","CARGO"],...BASE.map(p=>[p.id,p.nome,p.mat,p.cargo])]); ws["!cols"]=[{wch:10},{wch:42},{wch:10},{wch:22}]; const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,"Colaboradores"); XLSX.writeFile(wb,"Lista_colaboradores.xlsx"); });
+$("#regQ").addEventListener("input",renderReg);
+$("#btnExport").addEventListener("click",e=>{ e.stopPropagation(); const m=$("#exportMenu"); m.hidden=!m.hidden; $("#btnExport").setAttribute("aria-expanded",!m.hidden); });
+document.addEventListener("click",()=>{ $("#exportMenu").hidden=true; $("#btnExport").setAttribute("aria-expanded",false); });
+$("#exportMenu").addEventListener("click",e=>{ const b=e.target.closest("[data-exp]"); if(!b) return; const t=b.dataset.exp;
+  if(typeof XLSX==="undefined" && t!=="pdf" && t!=="wpp"){ toast("Biblioteca de Excel não carregou. Verifique a internet."); return; }
+  ({xlsx:exportXlsx,orig:exportOrig,csv:exportCsv,pdf:exportPdf,wpp:openWpp})[t](); });
+$("#btnImport").addEventListener("click",()=>$("#dlgImport").showModal());
+$("#impClose").addEventListener("click",()=>$("#dlgImport").close());
+$("#pickFile").addEventListener("click",()=>$("#fileIn").click());
+$("#fileIn").addEventListener("change",e=>{ const f=e.target.files[0]; if(f) handleFile(f); e.target.value=""; });
+const drop=$("#drop");
+["dragenter","dragover"].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add("over");}));
+["dragleave","drop"].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove("over");}));
+drop.addEventListener("drop",e=>{ const f=e.dataTransfer.files[0]; if(f) handleFile(f); });
+$("#btnSheet").addEventListener("click",()=>{ const c=store.get("sheet",null); $("#sheetUrl").value=c?.url||""; $("#sheetEvery").value=c?.every??"5"; $("#sheetMsg").textContent=c?"Planilha ligada.":""; $("#dlgSheet").showModal(); });
+$("#sheetClose").addEventListener("click",()=>$("#dlgSheet").close());
+$("#sheetGo").addEventListener("click",async()=>{
+  const url=$("#sheetUrl").value.trim(); if(!sheetCsvUrl(url)){ $("#sheetMsg").textContent="Esse link não parece ser de uma planilha do Google."; return; }
+  store.set("sheet",{url,every:$("#sheetEvery").value}); $("#sheetMsg").textContent="Buscando…";
+  const ok=await pullSheet(false);
+  if(ok){ $("#dlgSheet").close(); startSheetTimer(); } else $("#sheetMsg").textContent="Não consegui ler. Confira se a planilha está como \"Qualquer pessoa com o link: Leitor\" e se o link é da aba certa.";
+});
+$("#sheetOff").addEventListener("click",()=>{ store.set("sheet",null); clearInterval(sheetTimer); const saved=store.get("data",null); if(saved&&saved.rows?.length){ SRC=saved.rows; SOURCE=saved.source; } else { SRC=fromSeed(); SOURCE={kind:"seed",label:SEED_NAME,at:null}; } recompute(); S.cycle=null; S.day=null; rebuildFilters(); render(); $("#dlgSheet").close(); toast("Planilha desligada"); });
+$("#btnRefresh").addEventListener("click",()=>pullSheet(false));
+$("#wppClose").addEventListener("click",()=>$("#dlgWpp").close());
+$("#wppCopy").addEventListener("click",()=>copyText($("#wppText").value));
+document.addEventListener("visibilitychange",()=>{ if(document.visibilityState==="visible" && store.get("sheet",null)) pullSheet(true); });
+
+let _rz; window.addEventListener("resize",()=>{ clearTimeout(_rz); _rz=setTimeout(()=>{ if(S.tab==="dia"||S.tab==="ciclo"||S.tab==="lanc") render(); },200); });
+/* ===== Início ===== */
+(function boot(){
+  const saved=store.get("data",null);
+  if(saved && saved.rows?.length){ SRC=saved.rows; SOURCE=saved.source; } else { SRC=fromSeed(); }
+  const sc=store.get("sheet",null);
+  if(sc){ const c=store.get("sheetCache",null); if(c){ SRC=c.rows; SOURCE={kind:"sheet",label:"Google Sheets",at:c.at}; } }
+  recompute(); loadBase();
+  rebuildFilters(); setTab(S.tab);
+  if(sc){ pullSheet(true); startSheetTimer(); }
+})();
+</script>
+</body>
+</html>
