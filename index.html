@@ -358,8 +358,9 @@ select.tsel.ATESTADO{background:var(--atest-soft);color:var(--atest);border-colo
   <h3>Ligar com Google Sheets</h3>
   <ol>
     <li>Na planilha, clique em <b>Compartilhar</b> → "Qualquer pessoa com o link" → <b>Leitor</b>. Ou use <b>Arquivo → Compartilhar → Publicar na Web</b> (formato CSV).</li>
-    <li>Abra a aba com os registros e copie o link do navegador (ele contém <span class="badge">gid=</span>, que indica a aba).</li>
+    <li>Abra a aba de presença (ex.: <b>Preseça KN</b>, com uma coluna por dia marcada com <b>F</b> e <b>AT</b>) ou uma aba em lista (NOME + DATA AUSENCIA) e copie o link do navegador (ele contém <span class="badge">gid=</span>, que indica a aba).</li>
     <li>Cole abaixo. O app busca os dados sempre que abrir e no intervalo escolhido.</li>
+    <li><b>Mais seguro:</b> use o link do Apps Script da Headcount (termina em <span class="badge">/exec?k=sua-chave</span>). Assim a planilha não precisa ser compartilhada.</li>
   </ol>
   <div class="field"><label for="sheetUrl">Link da planilha</label>
     <input type="url" id="sheetUrl" placeholder="https://docs.google.com/spreadsheets/d/…/edit#gid=0"></div>
@@ -454,6 +455,39 @@ function normTipo(v){
   if (t.includes("FALTA") || t === "F") return "FALTA";
   return t;
 }
+/* Grade de presença: linha de cabeçalho com "Nome" e várias datas (19/10/2026, 20/10/2026...).
+   Cada célula do dia: F = falta, AT = atestado. P, FO e o resto são ignorados. */
+const GRID_TIPOS = { "F":"FALTA", "AT":"ATESTADO" };
+function parseGrid(aoa){
+  let h=-1, iN=-1, dateCols=[];
+  for (let i=0;i<Math.min(aoa.length,30);i++){
+    const raw = aoa[i]||[], row = raw.map(norm);
+    const n = row.findIndex(c => c==="NOME" || c.startsWith("NOME") || c==="COLABORADOR");
+    if (n<0) continue;
+    const cols=[]; raw.forEach((v,j)=>{ if(j<=n) return; const k=/^\d{1,2}[\/.\-]\d{1,2}[\/.\-]\d{2,4}/.test(String(v).trim()) || v instanceof Date ? cellToKey(v) : null; if(k) cols.push([j,k]); });
+    if (cols.length>=3){ h=i; iN=n; dateCols=cols; break; }
+  }
+  if (h<0) return null;
+  const hdr=(aoa[h]||[]).map(norm);
+  let iId = hdr.findIndex(c => c.startsWith("GROO") || c==="ID" || c==="GROOT");
+  if (iId<0 && iN>0){ // sem título: usa a 1ª coluna se ela tiver números (Groot ID)
+    const amostra=aoa.slice(h+1,h+21).map(r=>String((r||[])[0]??"").trim()).filter(Boolean);
+    if (amostra.length && amostra.filter(v=>/^\d+(\.0)?$/.test(v)).length>=amostra.length*0.8) iId=0;
+  }
+  const iMat = hdr.findIndex(c => c.startsWith("MATR"));
+  const iCargo = hdr.findIndex(c => c.startsWith("CARGO") || c.startsWith("FUNC"));
+  const num = v => { const s=String(v ?? "").trim(); if(!s) return ""; const n=Number(s.replace(/\.0$/,"")); return isNaN(n)? s : n; };
+  const out=[];
+  for (let i=h+1;i<aoa.length;i++){
+    const r=aoa[i]||[]; const nome=String(r[iN]??"").trim(); if(!nome) continue;
+    for (const [j,d] of dateCols){
+      const tipo = GRID_TIPOS[norm(r[j])]; if(!tipo) continue;
+      out.push({ id: iId>=0?num(r[iId]):"", nome, mat: iMat>=0?num(r[iMat]):"", cargo: iCargo>=0?String(r[iCargo]??"").trim():"", d, tipo });
+    }
+  }
+  if (!out.length) throw new Error(`Li a grade (${dateCols.length} dias), mas não achei nenhuma célula com F ou AT.`);
+  return {rows:out, skipped:0, grid:true};
+}
 function parseRows(aoa){
   // acha a linha de cabeçalho
   let h = -1, map = {};
@@ -471,7 +505,12 @@ function parseRows(aoa){
       break;
     }
   }
-  if (h<0) throw new Error("Não achei o cabeçalho. A planilha precisa ter as colunas NOME e DATA AUSENCIA.");
+  if (h<0){
+    // formato em grade (aba "Presença KN" da Headcount): uma coluna por dia, células com F / AT
+    const g = parseGrid(aoa);
+    if (g) return g;
+    throw new Error("Não achei o cabeçalho. Use a aba de presença (Nome + uma coluna por dia com F/AT) ou uma lista com NOME e DATA AUSENCIA.");
+  }
   const out=[]; let skipped=0;
   for (let i=h+1;i<aoa.length;i++){
     const r = aoa[i]||[];
@@ -1186,17 +1225,25 @@ async function copyText(t){ try{ await navigator.clipboard.writeText(t); toast("
 let sheetTimer=null;
 function sheetCsvUrl(u){
   u=u.trim(); if(!u) return null;
+  if (/script\.google(usercontent)?\.com/.test(u)) return u;   // Apps Script da Headcount (planilha fica restrita)
   if (/output=csv|format=csv|tqx=out:csv/.test(u)) return u;
   const m=u.match(/\/spreadsheets\/d\/(?:e\/)?([a-zA-Z0-9-_]+)/); if(!m) return null;
   const gid=(u.match(/[#&?]gid=(\d+)/)||[])[1];
   if (u.includes("/d/e/")) return `https://docs.google.com/spreadsheets/d/e/${m[1]}/pub?output=csv${gid?`&gid=${gid}`:""}`;
-  return `https://docs.google.com/spreadsheets/d/${m[1]}/gviz/tq?tqx=out:csv${gid?`&gid=${gid}`:""}`;
+  return `https://docs.google.com/spreadsheets/d/${m[1]}/gviz/tq?tqx=out:csv&headers=1${gid?`&gid=${gid}`:""}`;
 }
 async function pullSheet(silent){
   const cfg=store.get("sheet",null); if(!cfg) return;
   const url=sheetCsvUrl(cfg.url); if(!url){ if(!silent) toast("Link inválido"); return; }
   try{
-    const res=await fetch(url+(url.includes("?")?"&":"?")+"_="+Date.now(),{cache:"no-store"});
+    const pega=u=>fetch(u+(u.includes("?")?"&":"?")+"_="+Date.now(),{cache:"no-store"});
+    let res;
+    try{ res=await pega(url); }
+    catch(e1){
+      // tenta de novo sem o ajuste de cabeçalho; se ainda falhar, quase sempre é planilha fechada
+      try{ res=await pega(url.replace("&headers=1","")); }
+      catch(e2){ throw new Error("o Google recusou o acesso. A planilha está restrita: use Arquivo → Compartilhar → Publicar na Web (aba Preseça KN, CSV) e cole o link gerado"); }
+    }
     if(!res.ok) throw new Error("HTTP "+res.status);
     const txt=await res.text();
     if (/^\s*<(!doctype|html)/i.test(txt)) throw new Error("planilha não está compartilhada");
