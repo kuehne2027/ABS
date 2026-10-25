@@ -21,7 +21,8 @@
   --f-mono:"JetBrains Mono",ui-monospace,Consolas,monospace;
   color-scheme:light;
 }
-@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+/* sempre branco, mesmo dentro da Central (tema escuro só se pedido) */
+@media not all{:root:not([data-theme="light"]){
   --bg:#0f161d; --panel:#16202a; --ink:#e6edf3; --muted:#93a3b2; --line:#263442; --soft:#1c2834;
   --accent:#4aa3dd; --accent-ink:#06121b;
   --falta:#ef6a5f; --falta-soft:#3a1f1d; --atest:#5d9cf0; --atest-soft:#1a2b42; --outro:#7d8894;
@@ -1222,6 +1223,9 @@ function openWpp(k){ const t=wppText(typeof k==="string"?k:undefined); $("#wppTe
 async function copyText(t){ try{ await navigator.clipboard.writeText(t); toast("Copiado"); }catch(e){ const ta=$("#wppText"); ta.value=t; ta.select(); try{document.execCommand("copy"); toast("Copiado");}catch(_){ toast("Selecione e copie o texto"); } } }
 
 /* ===== Google Sheets ===== */
+/* Link fixo da Headcount (Apps Script "por fora", só leitura): carrega sozinho em qualquer navegador, inclusive dentro da Central */
+const SHEET_PADRAO = { url: "https://script.google.com/macros/s/AKfycbzio9X-dis7j7mrgv7HMpWqfSvkRNGbzARKx92CzmOJKdpN_9QZ8vnlghpkZFzHwTYV/exec?k=kn-faltas-8371-xyz", every: "15" };
+function sheetCfg(){ const v=store.get("sheet",undefined); if(v===undefined) return SHEET_PADRAO.url ? SHEET_PADRAO : null; return v; }
 let sheetTimer=null;
 function sheetCsvUrl(u){
   u=u.trim(); if(!u) return null;
@@ -1233,7 +1237,7 @@ function sheetCsvUrl(u){
   return `https://docs.google.com/spreadsheets/d/${m[1]}/gviz/tq?tqx=out:csv&headers=1${gid?`&gid=${gid}`:""}`;
 }
 async function pullSheet(silent){
-  const cfg=store.get("sheet",null); if(!cfg) return;
+  const cfg=sheetCfg(); if(!cfg) return;
   const url=sheetCsvUrl(cfg.url); if(!url){ if(!silent) toast("Link inválido"); return; }
   try{
     const pega=u=>fetch(u+(u.includes("?")?"&":"?")+"_="+Date.now(),{cache:"no-store"});
@@ -1264,7 +1268,7 @@ async function pullSheet(silent){
     return false;
   }
 }
-function startSheetTimer(){ clearInterval(sheetTimer); const cfg=store.get("sheet",null); if(cfg && +cfg.every>0) sheetTimer=setInterval(()=>pullSheet(true), +cfg.every*60000); }
+function startSheetTimer(){ clearInterval(sheetTimer); const cfg=sheetCfg(); if(cfg && +cfg.every>0) sheetTimer=setInterval(()=>pullSheet(true), +cfg.every*60000); }
 
 /* ===== Importação de arquivo ===== */
 async function handleFile(f){
@@ -1273,7 +1277,7 @@ async function handleFile(f){
     const wb = /\.csv$/i.test(f.name) ? XLSX.read(new TextDecoder("utf-8").decode(buf),{type:"string",raw:true}) : XLSX.read(buf,{type:"array",raw:true});
     const {rows,skipped,sheet}=workbookToRows(wb);
     const mode=$("#impMode").value;
-    if (store.get("sheet",null)) { store.set("sheet",null); clearInterval(sheetTimer); }
+    if (sheetCfg()) { store.set("sheet",null); clearInterval(sheetTimer); }
     setData(rows,{kind:"file",label:f.name,at:Date.now()},mode);
     $("#dlgImport").close();
     toast(`${fmt(rows.length)} registros lidos da aba "${sheet}"${skipped?` · ${skipped} sem data ignorados`:""}`);
@@ -1337,7 +1341,7 @@ const drop=$("#drop");
 ["dragenter","dragover"].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add("over");}));
 ["dragleave","drop"].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove("over");}));
 drop.addEventListener("drop",e=>{ const f=e.dataTransfer.files[0]; if(f) handleFile(f); });
-$("#btnSheet").addEventListener("click",()=>{ const c=store.get("sheet",null); $("#sheetUrl").value=c?.url||""; $("#sheetEvery").value=c?.every??"5"; $("#sheetMsg").textContent=c?"Planilha ligada.":""; $("#dlgSheet").showModal(); });
+$("#btnSheet").addEventListener("click",()=>{ const c=sheetCfg(); $("#sheetUrl").value=c?.url||""; $("#sheetEvery").value=c?.every??"5"; $("#sheetMsg").textContent=c?"Planilha ligada.":""; $("#dlgSheet").showModal(); });
 $("#sheetClose").addEventListener("click",()=>$("#dlgSheet").close());
 $("#sheetGo").addEventListener("click",async()=>{
   const url=$("#sheetUrl").value.trim(); if(!sheetCsvUrl(url)){ $("#sheetMsg").textContent="Esse link não parece ser de uma planilha do Google."; return; }
@@ -1349,14 +1353,14 @@ $("#sheetOff").addEventListener("click",()=>{ store.set("sheet",null); clearInte
 $("#btnRefresh").addEventListener("click",()=>pullSheet(false));
 $("#wppClose").addEventListener("click",()=>$("#dlgWpp").close());
 $("#wppCopy").addEventListener("click",()=>copyText($("#wppText").value));
-document.addEventListener("visibilitychange",()=>{ if(document.visibilityState==="visible" && store.get("sheet",null)) pullSheet(true); });
+document.addEventListener("visibilitychange",()=>{ if(document.visibilityState==="visible" && sheetCfg()) pullSheet(true); });
 
 let _rz; window.addEventListener("resize",()=>{ clearTimeout(_rz); _rz=setTimeout(()=>{ if(S.tab==="dia"||S.tab==="ciclo"||S.tab==="lanc") render(); },200); });
 /* ===== Início ===== */
 (function boot(){
   const saved=store.get("data",null);
   if(saved && saved.rows?.length){ SRC=saved.rows; SOURCE=saved.source; } else { SRC=[]; }
-  const sc=store.get("sheet",null);
+  const sc=sheetCfg();
   if(sc){ const c=store.get("sheetCache",null); if(c){ SRC=c.rows; SOURCE={kind:"sheet",label:"Google Sheets",at:c.at}; } }
   recompute(); loadBase();
   rebuildFilters(); setTab(S.tab);
