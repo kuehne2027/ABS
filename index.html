@@ -567,6 +567,9 @@ function fmtHor(v){
 }
 let GINFO = (()=>{ try{ return JSON.parse(localStorage.getItem("knfaltas:ginfo"))||{}; }catch(e){ return {}; } })();
 const GRID_TIPOS = { "F":"FALTA", "AT":"ATESTADO" };
+const GRID_FOLGA = new Set(["FO","FOLGA","FOL","DSR","FG"]);
+/* folgas lidas da grade: usadas pra descobrir o dia de folga de cada escala */
+let GRID_FO = (()=>{ try{ return JSON.parse(localStorage.getItem("knfaltas:gridfo"))||{pess:[],fo:[]}; }catch(e){ return {pess:[],fo:[]}; } })();
 function parseGrid(aoa){
   let h=-1, iN=-1, dateCols=[];
   for (let i=0;i<Math.min(aoa.length,30);i++){
@@ -592,15 +595,20 @@ function parseGrid(aoa){
     store.set("ginfo",GINFO);
   }
   const num = v => { const s=String(v ?? "").trim(); if(!s) return ""; const n=Number(s.replace(/\.0$/,"")); return isNaN(n)? s : n; };
-  const out=[];
+  const out=[], pess=[], fo=[];
   for (let i=h+1;i<aoa.length;i++){
     const r=aoa[i]||[]; const nome=String(r[iN]??"").trim(); if(!nome) continue;
+    const pid = iId>=0?num(r[iId]):"";
+    pess.push([pid, nome]);
     for (const [j,d] of dateCols){
-      const tipo = GRID_TIPOS[norm(r[j])]; if(!tipo) continue;
+      const cel = norm(r[j]);
+      if (GRID_FOLGA.has(cel)){ fo.push([pess.length-1, d]); continue; }
+      const tipo = GRID_TIPOS[cel]; if(!tipo) continue;
       out.push({ id: iId>=0?num(r[iId]):"", nome, mat: iMat>=0?num(r[iMat]):"", cargo: iCargo>=0?String(r[iCargo]??"").trim():"", d, tipo });
     }
   }
   if (!out.length) throw new Error(`Li a grade (${dateCols.length} dias), mas não achei nenhuma célula com F ou AT.`);
+  GRID_FO = {pess, fo}; store.set("gridfo", GRID_FO);
   return {rows:out, skipped:0, grid:true};
 }
 function parseRows(aoa){
@@ -650,8 +658,27 @@ function workbookToRows(wb){
   throw lastErr || new Error("Planilha vazia.");
 }
 const rowKey = r => `${r.id||norm(r.nome)}|${r.d}`;
+/* Dia de folga da escala: se metade ou mais das pessoas da mesma escala estão com FO naquele dia,
+   o dia é folga da escala — um F/AT da planilha nesse dia (ex.: atestado lançado no período inteiro) não conta. */
+let FOLGA_IGN = [];
+function escKeyDe(id, nome){ const e = BASE ? escInfo({id, nome}) : ((idKey(id) && GINFO[idKey(id)]) || escPorNome(nome) || {}); const k = norm(e.esc || e.ant || ""); return k || null; }
+function diasFolgaEscala(){
+  const P = GRID_FO.pess||[], FO = GRID_FO.fo||[]; if (!FO.length) return null;
+  const escDe = P.map(([id,nome]) => escKeyDe(id,nome));
+  const membros = {}; escDe.forEach(k => { if (k) membros[k] = (membros[k]||0)+1; });
+  const cont = {}; FO.forEach(([i,d]) => { const k = escDe[i]; if (!k) return; const c = k+"|"+d; cont[c] = (cont[c]||0)+1; });
+  const folga = new Set(); Object.entries(cont).forEach(([c,n]) => { const k = c.split("|")[0]; if (n >= 1 && n/membros[k] >= 0.5) folga.add(c); });
+  return folga;
+}
+function tiraFolgas(rows){
+  FOLGA_IGN = [];
+  let folga; try{ folga = diasFolgaEscala(); }catch(e){ console.warn("folga", e); return rows; }
+  if (!folga || !folga.size) return rows;
+  try{ return rows.filter(r => { const k = escKeyDe(r.id, r.nome); if (k && folga.has(k+"|"+r.d)){ FOLGA_IGN.push(r); return false; } return true; }); }
+  catch(e){ console.warn("folga", e); FOLGA_IGN = []; return rows; }
+}
 function recompute(){
-  const m = new Map(SRC.map(r=>[rowKey(r),r]));
+  const m = new Map(tiraFolgas(SRC).map(r=>[rowKey(r),r]));
   LOCAL.forEach(l=>{ const k=rowKey(l); if(l.del) m.delete(k); else m.set(k,{id:l.id,nome:l.nome,mat:l.mat,cargo:l.cargo,d:l.d,tipo:l.tipo}); });
   DATA=enrich([...m.values()].filter(r=>r.d>=START));
 }
@@ -812,7 +839,9 @@ function renderDia(){
     <div class="kpi"><div class="l">Acumulado do ciclo</div><div class="v">${fmt(cyc.length)}</div><div class="s">${brShort(cs)} até ${brShort(k)}</div></div>`;
   // reincidência no ciclo
   const cnt = {}; cyc.forEach(r=>{ const kk=r.id||norm(r.nome); cnt[kk]=(cnt[kk]||0)+1; });
-  $("#daySub").textContent = rows.length ? `${rows.length} ${rows.length===1?"pessoa":"pessoas"} · número ao lado = ausências no ciclo até este dia` : "";
+  const ign = FOLGA_IGN.filter(r => r.d===k && (!S.cargo||r.cargo===S.cargo));
+  $("#daySub").innerHTML = (rows.length ? `${rows.length} ${rows.length===1?"pessoa":"pessoas"} · número ao lado = ausências no ciclo até este dia` : "") +
+    (ign.length ? `<br><span title="${esc(ign.map(r=>title(r.nome)+" ("+r.tipo+")").join("\n"))}" style="color:var(--muted,#6b7280)">⚠ ${ign.length} ${ign.length===1?"lançamento ignorado":"lançamentos ignorados"} por ser dia de folga da escala: ${esc(ign.map(r=>title(r.nome)).join(", "))}</span>` : "");
   if (!rows.length){ $("#dayList").innerHTML = `<div class="empty">Nenhuma ausência registrada em ${br(k)}.</div>`; }
   else {
     const sorted=[...rows].sort((x,y)=> x.tipo===y.tipo ? x.nome.localeCompare(y.nome,"pt-BR") : (x.tipo==="FALTA"?-1:1));
@@ -1108,7 +1137,7 @@ async function loadEscalas(forcar){
         if (u){ const j = await (await fetch(u)).json(); if (j.ok){ (j.pessoas||[]).filter(p => !/inativ|deslig/i.test(p.status||"")).forEach(p => addPessoaEsc(map, p.nome, p.escala, p.antiga)); if (Object.keys(map).length) src = "aba GRUPOS"; } }
       }catch(e){ console.warn("GRUPOS", e); }
     }
-    if (src){ ESCN = {at:Date.now(), src, map}; ESCN_CURTO = null; store.set("escnome", ESCN); }
+    if (src){ ESCN = {at:Date.now(), src, map}; ESCN_CURTO = null; store.set("escnome", ESCN); try{ recompute(); rebuildFilters(); render(); }catch(e){ console.warn(e); } }
     ESC_LOADING = null;
     if (S.tab === "cob") renderCob();
     return ESCN;
@@ -1892,9 +1921,9 @@ async function pullSheet(silent){
     const {rows}=workbookToRows(wb);
     const keepDay=S.day, keepCycle=S.cycle;
     setData(rows,{kind:"sheet",label:"Google Sheets",at:Date.now()},"replace");
-    if(silent){ S.day=keepDay; S.cycle=keepCycle; rebuildFilters(); render(); }
+    S.day=keepDay; S.cycle=keepCycle; rebuildFilters(); render();
     store.set("sheetCache",{rows,at:Date.now()});
-    if(!silent) toast(`Planilha carregada: ${fmt(rows.length)} registros`);
+    if(!silent) toast(`Atualizado às ${new Date().toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"})} · ${fmt(rows.length)} registros${FOLGA_IGN.length?` · ${FOLGA_IGN.length} ignorados (folga)`:""}`);
     return true;
   }catch(e){
     const c=store.get("sheetCache",null);
@@ -1993,7 +2022,14 @@ $("#sheetGo").addEventListener("click",async()=>{
   if(ok){ $("#dlgSheet").close(); startSheetTimer(); } else $("#sheetMsg").textContent="Não consegui ler. Confira se a planilha está como \"Qualquer pessoa com o link: Leitor\" e se o link é da aba certa.";
 });
 $("#sheetOff").addEventListener("click",()=>{ store.set("sheet",null); clearInterval(sheetTimer); const saved=store.get("data",null); if(saved&&saved.rows?.length){ SRC=saved.rows; SOURCE=saved.source; } else { SRC=[]; SOURCE={kind:"seed",label:SEED_NAME,at:null}; } recompute(); S.cycle=null; S.day=null; rebuildFilters(); render(); $("#dlgSheet").close(); toast("Planilha desligada"); });
-$("#btnRefresh").addEventListener("click",()=>pullSheet(false));
+$("#btnRefresh").addEventListener("click",async()=>{
+  const b=$("#btnRefresh"); if(b.disabled) return;
+  b.disabled=true; const t=b.textContent; b.textContent="Atualizando…";
+  try{
+    if(!sheetCfg()){ toast("Nenhuma planilha ligada. Use \"Ligar Google Sheets\"."); return; }
+    await Promise.all([pullSheet(false), loadEscalas(true).catch(()=>{})]);
+  } finally { b.disabled=false; b.textContent=t; }
+});
 $("#wppClose").addEventListener("click",()=>$("#dlgWpp").close());
 $("#wppCopy").addEventListener("click",()=>copyText($("#wppText").value));
 document.addEventListener("visibilitychange",()=>{ if(document.visibilityState!=="visible") return; if(sheetCfg()) pullSheet(true); if(S.tab==="cob") loadDiarDB(true); });
@@ -2009,6 +2045,7 @@ let _rz; window.addEventListener("resize",()=>{ clearTimeout(_rz); _rz=setTimeou
   recompute(); loadBase();
   rebuildFilters(); setTab(S.tab);
   if(sc){ pullSheet(true); startSheetTimer(); }
+  try{ loadEscalas(false); }catch(e){}
 })();
 </script>
 </body>
