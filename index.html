@@ -166,6 +166,17 @@ table.cob tr.grp td.gap{background:transparent}
 table.cob tr.grp td.dz{background:color-mix(in srgb,var(--ok) 12%,transparent)}
 select.dsel{font-size:13.5px;padding:6px 8px;min-width:190px;max-width:260px}
 select.dsel.vazio{border-color:var(--warn);color:var(--warn);font-weight:600}
+.meli{margin-top:18px;border:1px solid color-mix(in srgb,var(--meli) 35%,transparent);border-radius:12px;overflow:hidden}
+.meli .mh{background:var(--meli);color:#fff;font-family:var(--f-display);font-size:15px;letter-spacing:.04em;padding:7px 10px;display:flex;justify-content:space-between;align-items:center;gap:8px}
+.meli .mh small{font-family:inherit;font-size:12px;opacity:.9;letter-spacing:0}
+.meli .mb{padding:10px;display:grid;gap:6px;background:color-mix(in srgb,var(--meli) 6%,transparent)}
+.meli .mi{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:8px;background:var(--card,transparent);border:1px solid var(--soft)}
+.meli .mi .n{flex:1;text-transform:capitalize;font-weight:600}
+.meli .mi .s{font-size:12px;color:var(--muted)}
+.meli .add{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:4px}
+.meli .add select{flex:1;min-width:200px}
+.tag.meli-t{background:color-mix(in srgb,var(--meli) 16%,transparent);color:var(--meli)}
+:root{--meli:#7a4fd1}
 .dl{display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--soft)}
 .dl .nm{flex:1;min-width:0;text-transform:capitalize;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dl .st{font-size:11.5px;color:var(--muted);display:block;text-transform:none;white-space:normal}
@@ -304,6 +315,7 @@ select.dsel.vazio{border-color:var(--warn);color:var(--warn);font-weight:600}
         <div class="row">
           <button class="primary" id="cAuto">Distribuir diaristas</button>
           <button id="cClear">Limpar atribuições</button>
+          <button class="primary" id="cSheet" title="Grava a cobertura do dia na planilha e abre ela">Abrir no Google Sheets</button>
           <button id="cExp">Exportar Excel</button>
           <button id="cWpp">Resumo WhatsApp</button>
         </div>
@@ -316,6 +328,8 @@ select.dsel.vazio{border-color:var(--warn);color:var(--warn);font-weight:600}
         <h2>Quem faltou x diarista que cobre</h2>
         <p class="sub">Cada ausência numa linha. Escolha o diarista na seta do bloco verde, ou use "Distribuir diaristas" para preencher sozinho.</p>
         <div class="scroll" id="cTable"></div>
+        <div class="meli" id="cMeli"></div>
+        <p class="sub" id="cSync" style="margin:12px 0 0"></p>
       </div>
       <div class="card">
         <h2>Diaristas do dia <span class="badge" id="cDCount">0</span></h2>
@@ -456,6 +470,22 @@ select.dsel.vazio{border-color:var(--warn);color:var(--warn);font-weight:600}
 </div></dialog>
 
 <!-- Diaristas: banco -->
+<!-- Cobertura: planilha do Google -->
+<dialog id="dlgCobSheet"><div class="dlg">
+  <h3>Planilha da Cobertura (Google Sheets)</h3>
+  <p class="note" style="margin:0">O app grava a cobertura de cada dia numa aba da sua planilha (quem faltou, diarista que cobre, escala Meli e livres) e abre a planilha pra você ver. Também guarda tudo na nuvem: abrindo em outro computador ou no coletor, as escolhas aparecem.</p>
+  <ol class="note" style="margin:6px 0 0;padding-left:18px;line-height:1.6">
+    <li>Crie uma planilha nova no Google Sheets (ex.: <b>Cobertura ABS</b>).</li>
+    <li>Nela, vá em <b>Extensões → Apps Script</b>, apague o que estiver lá e cole o código (botão abaixo). Salve.</li>
+    <li><b>Implantar → Nova implantação</b> → tipo <b>App da Web</b> → Executar como <b>Eu</b> → Quem pode acessar <b>Qualquer pessoa</b> → Implantar e autorize.</li>
+    <li>Copie a <b>URL do app da Web</b> (termina em <code>/exec</code>) e cole aqui.</li>
+  </ol>
+  <div class="row"><button id="csCopy">Copiar código do Apps Script</button></div>
+  <div class="field"><label for="csUrl">URL do app da Web</label><input type="url" id="csUrl" placeholder="https://script.google.com/macros/s/.../exec"></div>
+  <p class="note" id="csMsg" style="margin:0;min-height:18px"></p>
+  <div class="row" style="justify-content:flex-end"><button class="ghost" id="csClose">Fechar</button><button class="primary" id="csGo">Salvar e testar</button></div>
+</div></dialog>
+
 <dialog id="dlgDiarCfg"><div class="dlg">
   <h3>Banco dos diaristas</h3>
   <p class="note" style="margin:0">Já vem ligado ao banco do app Controle de Diaristas (<b>kuehne-diaristas</b>) e busca sozinho quem foi lançado na data escolhida. Só mexa aqui se o app de Diaristas mudar de banco. Deixe a URL em branco para voltar ao padrão.</p>
@@ -1088,10 +1118,44 @@ function renderLanc(){
 /* ===== Cobertura (ABS x Diaristas) ===== */
 let DIAR = store.get("diar", {});     // dia -> {list:[{id,nome,turno,hor}], src, at}
 let ATRIB = store.get("atrib", {});   // dia -> {chaveDoABS: chaveDoDiarista}
+let MELI = store.get("meli", {});     // dia -> [{k, nome, id, hor, turno}] diaristas que ficaram na escala de diarista do Meli
+let COBAT = store.get("cobat", {});   // dia -> quando a cobertura foi mexida neste aparelho (para casar com a planilha)
+let ATRIBM = store.get("atribm", {}); // dia -> {chaveDoABS: {an: nome do ABS, dn, did, hor, turno}} (cópia de quem cobre, para nunca perder)
 S.cday = todayKey();
-const saveDiar = () => store.set("diar", DIAR);
-const saveAtrib = () => store.set("atrib", ATRIB);
 const dKey = d => idKey(d.id) || norm(d.nome);
+/* grava com aviso: se o navegador recusar (memória cheia), limpa o cache antigo e tenta de novo */
+function storeSafe(k, v){
+  const raw = JSON.stringify(v);
+  try{ localStorage.setItem("knfaltas:"+k, raw); return true; }
+  catch(e){
+    try{
+      const lim = addDays(todayKey(), -60);
+      Object.keys(DIAR).forEach(d => { if (d < lim && !(ATRIB[d] && Object.keys(ATRIB[d]).length)) delete DIAR[d]; });
+      localStorage.setItem("knfaltas:diar", JSON.stringify(DIAR));
+      localStorage.setItem("knfaltas:"+k, raw); return true;
+    }catch(e2){ toast("⚠ Não consegui salvar no navegador (memória cheia ou modo anônimo)."); return false; }
+  }
+}
+const saveDiar = () => storeSafe("diar", DIAR);
+function saveAtrib(){
+  // guarda junto o nome de quem faltou e os dados do diarista, para reapontar se a lista mudar
+  Object.entries(ATRIB).forEach(([d, at]) => {
+    const meta = ATRIBM[d] || (ATRIBM[d] = {});
+    const list = (DIAR[d]?.list) || [];
+    const abs = DATA.filter(r => r.d === d);
+    Object.keys(meta).forEach(k => { if (!at[k]) delete meta[k]; });
+    Object.entries(at).forEach(([ak, dk]) => {
+      const x = list.find(y => dKey(y) === dk), r = abs.find(r => rowKey(r) === ak);
+      const m = meta[ak] || {};
+      meta[ak] = { an: r ? r.nome : (m.an || ""), dn: x ? x.nome : (m.dn || ""), did: x ? (x.id || "") : (m.did || ""), hor: x ? (x.hor || "") : (m.hor || ""), turno: x ? (x.turno || "") : (m.turno || "") };
+    });
+    if (!Object.keys(meta).length) delete ATRIBM[d];
+  });
+  storeSafe("atrib", ATRIB); storeSafe("atribm", ATRIBM);
+}
+const saveMeli = () => storeSafe("meli", MELI);
+/* marca o dia como alterado e manda pra planilha (se ligada) */
+function cobMexeu(d){ COBAT[d] = Date.now(); storeSafe("cobat", COBAT); cobSyncLater(d); }
 /* mesmo banco do app Controle de Diaristas (kuehne-diaristas) — leitura pública, sem CPF */
 const DIAR_DB = {url:"https://wimqujskqgabjboihiei.supabase.co", key:"sb_publishable_9fcTqUHHJK8R3ebe_l1lXQ_LQwmWWlI", table:"historico_diarias"};
 function cobCfg(){ const c = store.get("cobcfg", null); return (c && c.url && c.key) ? {table:"historico_diarias", ...c} : {...DIAR_DB}; }
@@ -1163,22 +1227,53 @@ function cobRows(d){
       return String(a.esc).localeCompare(String(b.esc), "pt-BR", {numeric:true}) || a.nome.localeCompare(b.nome, "pt-BR");
     });
 }
+/* Nunca apaga uma atribuição sozinho: se a lista de diaristas ou a planilha mudou (ID que apareceu depois,
+   banco fora do ar, planilha ainda carregando), reaponta pelo nome/ID e, se o diarista sumiu da lista do dia,
+   devolve ele para a lista. Só o usuário tira um diarista (✕, "— sem diarista —" ou Limpar). */
 function cobState(d){
   const rows = cobRows(d);
-  const list = (DIAR[d]?.list) || [];
-  const byKey = new Map(list.map(x => [dKey(x), x]));
+  if (!DIAR[d]) DIAR[d] = {list: [], src: "lista", at: Date.now()};
+  const list = DIAR[d].list || (DIAR[d].list = []);
   const at = ATRIB[d] || {};
-  const valid = new Set(rows.map(r => r.key));
-  // limpa atribuições de ABS removidos ou diaristas que saíram da lista
-  let changed = false;
+  const meta = ATRIBM[d] || {};
+  let changed = false, listChanged = false;
+  const findDiar = (dk, m) => {
+    let x = list.find(y => dKey(y) === dk); if (x) return x;
+    if (m && m.did) x = list.find(y => idKey(y.id) && idKey(y.id) === idKey(m.did)); if (x) return x;
+    const nm = m && m.dn ? norm(m.dn) : dk;
+    return list.find(y => norm(y.nome) === nm) || null;
+  };
+  // 1) diarista: reaponta pelo ID/nome ou devolve para a lista do dia
   Object.keys(at).forEach(k => {
-    if (valid.has(k) && !byKey.has(at[k])){   // diarista ganhou Groot ID depois: reaponta pelo nome
-      const x = list.find(y => norm(y.nome) === at[k]); if (x){ at[k] = dKey(x); changed = true; return; } }
-    if (!valid.has(k) || !byKey.has(at[k])) { delete at[k]; changed = true; } });
-  if (changed){ ATRIB[d] = at; saveAtrib(); }
-  const used = new Map(); Object.entries(at).forEach(([ak, dk]) => used.set(dk, ak));
-  const livres = list.filter(x => !used.has(dKey(x)));
-  return {rows, list, byKey, at, used, livres};
+    const m = meta[k];
+    let x = findDiar(at[k], m);
+    if (!x && m && m.dn){ x = {id: m.did || "", nome: m.dn, turno: m.turno || "", hor: m.hor || "", manual: true}; list.push(x); listChanged = true; }
+    if (x && dKey(x) !== at[k]){ at[k] = dKey(x); changed = true; }
+  });
+  // 2) ausência: se a chave mudou (ex.: Groot ID chegou depois), reaponta pelo nome no mesmo dia
+  const valid = new Set(rows.map(r => r.key));
+  Object.keys(at).forEach(k => {
+    if (valid.has(k)) return;
+    const nm = meta[k] && meta[k].an ? norm(meta[k].an) : (k.split("|")[0]);
+    const r = rows.find(r => !at[r.key] && norm(r.nome) === nm);
+    if (r){ at[r.key] = at[k]; if (meta[k]) meta[r.key] = meta[k]; delete at[k]; delete meta[k]; changed = true; }
+  });
+  // 3) escala Meli: mesma proteção (reaponta pelo ID/nome; se sumiu da lista, volta pra lista)
+  const mel = MELI[d] || []; let melChanged = false;
+  mel.forEach(m => {
+    let x = findDiar(m.k, {did: m.id, dn: m.nome});
+    if (!x){ x = {id: m.id || "", nome: m.nome, turno: m.turno || "", hor: m.hor || "", manual: true}; list.push(x); listChanged = true; }
+    if (dKey(x) !== m.k || x.nome !== m.nome || String(x.id||"") !== String(m.id||"")){ m.k = dKey(x); m.nome = x.nome; m.id = x.id || ""; melChanged = true; }
+  });
+  if (listChanged){ list.sort((a,b) => a.nome.localeCompare(b.nome, "pt-BR")); saveDiar(); }
+  if (changed){ ATRIB[d] = at; ATRIBM[d] = meta; saveAtrib(); }
+  if (melChanged){ MELI[d] = mel; saveMeli(); }
+  const byKey = new Map(list.map(x => [dKey(x), x]));
+  const meliSet = new Set(mel.map(m => m.k));
+  const used = new Map(); Object.entries(at).forEach(([ak, dk]) => { if (valid.has(ak) && byKey.has(dk) && !meliSet.has(dk)) used.set(dk, ak); });
+  const meli = mel.map(m => byKey.get(m.k)).filter(Boolean);
+  const livres = list.filter(x => !used.has(dKey(x)) && !meliSet.has(dKey(x)));
+  return {rows, list, byKey, at, used, livres, meli, meliSet};
 }
 
 /* lê lista colada: Groot ID + nome (+ turno/horário opcionais) */
@@ -1196,6 +1291,11 @@ function parseDiarText(txt){
     out.push({id: id ? toId(id) : "", nome, turno, hor});
   });
   return out;
+}
+/* manuais que já vieram do banco (mesmo Groot ID ou mesmo nome) não entram de novo */
+function semDuplicar(extra, list){
+  const ids = new Set(list.map(x => idKey(x.id)).filter(Boolean)), nomes = new Set(list.map(x => norm(x.nome)));
+  return extra.filter(x => !(idKey(x.id) && ids.has(idKey(x.id))) && !nomes.has(norm(x.nome)));
 }
 function setDiar(d, list, src, mode){
   const m = new Map(mode === "merge" ? ((DIAR[d]?.list) || []).map(x => [dKey(x), x]) : []);
@@ -1235,7 +1335,7 @@ async function loadDiarDB(silent){
     const seen = new Set();
     const list = js.map(x => ({ id: x.groot_id ? toId(x.groot_id) : "", nome: String(x.nome || "").trim(), turno: x.turno || "", hor: x.horario_entrada ? String(x.horario_entrada).slice(0,5) : "", emp: x.empresa || "" }))
       .filter(x => x.nome && !seen.has(dKey(x)) && seen.add(dKey(x)));
-    const extra = ((DIAR[d]?.list) || []).filter(x => x.manual);   // mantém quem foi colado à mão
+    const extra = semDuplicar(((DIAR[d]?.list) || []).filter(x => x.manual), list);   // mantém quem foi colado à mão
     setDiar(d, await completarIds([...list, ...extra]), "banco", "replace");
     if (S.cday === d) renderCob();
     if (!silent) toast(list.length ? `${list.length} diaristas encontrados em ${br(d)}` : `Nenhum diarista lançado no banco em ${br(d)}`);
@@ -1267,25 +1367,38 @@ function autoDistrib(){
   pend.filter(r => !at[r.key]).sort((a,b) => a.tipo === b.tipo ? 0 : a.tipo === "FALTA" ? -1 : 1)
     .forEach(r => { if (!resto.length) return; at[r.key] = dKey(resto.shift()); n++; });
   free.length = 0; free.push(...resto);
-  ATRIB[d] = at; saveAtrib(); renderCob();
+  ATRIB[d] = at; saveAtrib(); cobMexeu(d); renderCob();
   toast(n ? `${n} ${n === 1 ? "ausência coberta" : "ausências cobertas"}${free.length ? ` · ${free.length === 1 ? "sobra 1 diarista" : `sobram ${free.length} diaristas`}` : ""}` : "Nada para distribuir");
 }
 function setAtrib(absKey, dk){
   const d = S.cday; const at = {...(ATRIB[d] || {})};
-  if (dk){ Object.keys(at).forEach(k => { if (at[k] === dk) delete at[k]; }); at[absKey] = dk; } else delete at[absKey];
-  ATRIB[d] = at; saveAtrib(); renderCob();
+  if (dk){ Object.keys(at).forEach(k => { if (at[k] === dk) delete at[k]; }); at[absKey] = dk;
+    if ((MELI[d]||[]).some(m => m.k === dk)){ MELI[d] = MELI[d].filter(m => m.k !== dk); saveMeli(); } }
+  else delete at[absKey];
+  ATRIB[d] = at; saveAtrib(); cobMexeu(d); renderCob();
+}
+/* escala de diarista do Meli */
+function setMeli(dk, on){
+  const d = S.cday; const st = cobState(d); const x = st.byKey.get(dk); if (!x) return;
+  let mel = (MELI[d] || []).filter(m => m.k !== dk);
+  if (on){
+    mel.push({k: dk, nome: x.nome, id: x.id || "", hor: x.hor || "", turno: x.turno || ""});
+    const at = ATRIB[d] || {}; Object.keys(at).forEach(a => { if (at[a] === dk) delete at[a]; }); ATRIB[d] = at; saveAtrib();
+  }
+  MELI[d] = mel; saveMeli(); cobMexeu(d); renderCob();
 }
 
 function renderCob(){
   const d = S.cday; $("#cPick").value = d; $("#cBig").textContent = br(d); $("#cWd").textContent = WD[wdOf(d)];
-  const st = cobState(d); const {rows, list, byKey, at, used, livres} = st;
+  const st = cobState(d); const {rows, list, byKey, at, used, livres, meli, meliSet} = st;
   const cob = rows.filter(r => at[r.key]).length;
   $("#cKpis").innerHTML = `
     <div class="kpi"><div class="l">Ausências no dia</div><div class="v">${rows.length}</div><div class="s">${rows.filter(r=>r.tipo==="FALTA").length} falta · ${rows.filter(r=>r.tipo==="ATESTADO").length} atestado</div></div>
     <div class="kpi"><div class="l">Diaristas do dia</div><div class="v">${list.length}</div><div class="s">${list.length ? (DIAR[d].src === "banco" ? "do app de Diaristas" : "lista colada") : "nenhum lançado no app"}</div></div>
     <div class="kpi ok"><div class="l">Cobertas</div><div class="v">${cob}</div><div class="s">${pct(cob, rows.length)}% das ausências</div></div>
     <div class="kpi falta"><div class="l">Sem diarista</div><div class="v">${rows.length - cob}</div><div class="s">ausências descobertas</div></div>
-    <div class="kpi warn"><div class="l">Diaristas livres</div><div class="v">${livres.length}</div><div class="s">sobra p/ escala aberta Meli</div></div>`;
+    <div class="kpi"><div class="l">Escala diarista Meli</div><div class="v" style="color:var(--meli)">${meli.length}</div><div class="s">diaristas que ficaram pro Meli</div></div>
+    <div class="kpi warn"><div class="l">Diaristas livres</div><div class="v">${livres.length}</div><div class="s">sem ABS e sem escala Meli</div></div>`;
   const semEsc = rows.filter(r => !r.esc && !r.ant && !r.hor).length;
   const escOk = Object.keys(ESCN.map).length;
   $("#cWarn").innerHTML = semEsc ? `<div class="warnbox"><b>${semEsc} de ${rows.length} ausências estão sem escala/horário.</b><span class="note">${escOk ? `As escalas vêm do ${esc(ESCN.src)} (${fmt(escOk)} pessoas), mas esses nomes não bateram com nenhuma escala. Confira se o nome está igual nas duas listas, ou importe a aba GRUPOS em "Lançar ABS → Importar lista de colaboradores".` : (ESC_LOADING ? "Buscando as escalas no Painel KN…" : `Não consegui ler as escalas do Painel KN agora. <button type="button" id="cEscRetry">Tentar de novo</button>`)}</span></div>` : "";
@@ -1295,7 +1408,7 @@ function renderCob(){
   if (!rows.length){ $("#cTable").innerHTML = `<div class="empty">Nenhuma ausência lançada em ${br(d)}.</div>`; }
   else {
     const opts = cur => {
-      const pool = list.filter(x => !used.has(dKey(x)) || dKey(x) === cur);
+      const pool = list.filter(x => (!used.has(dKey(x)) && !meliSet.has(dKey(x))) || dKey(x) === cur);
       return `<option value="">— sem diarista —</option>` + pool.map(x => `<option value="${esc(dKey(x))}"${dKey(x) === cur ? " selected" : ""}>${esc(title(x.nome))}${x.hor ? ` (${esc(x.hor)})` : ""}</option>`).join("");
     };
     let html = `<table class="cob"><thead>
@@ -1324,6 +1437,22 @@ function renderCob(){
     $("#cTable").querySelectorAll("[data-un]").forEach(b => b.addEventListener("click", () => setAtrib(b.dataset.un, "")));
   }
 
+  /* escala de diarista do Meli — mesmo lugar, logo abaixo da tabela */
+  $("#cMeli").innerHTML = `<div class="mh"><span>ESCALA DE DIARISTA MELI</span><small>${meli.length} ${meli.length === 1 ? "diarista" : "diaristas"}</small></div>
+    <div class="mb">${meli.length ? meli.map((x,i) => `<div class="mi"><span class="mono s">${i+1}</span><span class="n">${esc(title(x.nome))}</span>
+        <span class="s mono">${esc(x.id) || "sem ID"}${x.hor ? ` · ${esc(x.hor)}` : ""}</span>
+        <button class="del" data-mrm="${esc(dKey(x))}" title="Tirar da escala Meli" aria-label="Tirar ${esc(x.nome)} da escala Meli">✕</button></div>`).join("")
+      : `<div class="note" style="padding:4px 2px">Ninguém na escala Meli ainda. Escolha abaixo quem ficou pro Meli.</div>`}
+      <div class="add"><select id="cMeliSel" aria-label="Diarista para a escala Meli"><option value="">${livres.length ? "+ escolher diarista que ficou pro Meli…" : "Nenhum diarista livre"}</option>${livres.map(x => `<option value="${esc(dKey(x))}">${esc(title(x.nome))}${x.hor ? ` (${esc(x.hor)})` : ""}</option>`).join("")}</select>
+        ${livres.length ? `<button id="cMeliAll" class="ghost" title="Coloca todos os livres na escala Meli">Todos os livres →  Meli</button>` : ""}</div>
+    </div>`;
+  const ms = $("#cMeliSel"); if (ms) ms.addEventListener("change", () => { if (ms.value) setMeli(ms.value, true); });
+  const ma = $("#cMeliAll"); if (ma) ma.addEventListener("click", () => {
+    const mel = MELI[d] || []; livres.forEach(x => mel.push({k: dKey(x), nome: x.nome, id: x.id || "", hor: x.hor || "", turno: x.turno || ""}));
+    MELI[d] = mel; saveMeli(); cobMexeu(d); renderCob(); });
+  $("#cMeli").querySelectorAll("[data-mrm]").forEach(b => b.addEventListener("click", () => setMeli(b.dataset.mrm, false)));
+  cobSyncInfo();
+
   /* lista lateral de diaristas */
   $("#cDCount").textContent = list.length;
   const info = DIAR[d];
@@ -1331,20 +1460,24 @@ function renderCob(){
   $("#cDSrc").innerHTML = info ? `${info.src === "banco" ? "Do app de Diaristas" : "Lista colada"} · atualizado ${new Date(info.at).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"})}` : "Buscando os diaristas lançados nesse dia no app de Diaristas…";
   if (!list.length){ $("#cDList").innerHTML = `<div class="empty" style="padding:18px">Nenhum diarista para ${br(d)}.</div>`; return; }
   const absByKey = new Map(rows.map(r => [r.key, r]));
-  const ord = [...list].sort((a,b) => (used.has(dKey(a)) - used.has(dKey(b))) || a.nome.localeCompare(b.nome, "pt-BR"));
+  const ocup = x => used.has(dKey(x)) || meliSet.has(dKey(x));
+  const ord = [...list].sort((a,b) => (ocup(a) - ocup(b)) || a.nome.localeCompare(b.nome, "pt-BR"));
   $("#cDList").innerHTML = ord.map(x => {
-    const ak = used.get(dKey(x)), ab = ak ? absByKey.get(ak) : null;
-    return `<div class="dl ${ab ? "" : "livre"}"><span class="nm" title="${esc(x.nome)}">${esc(title(x.nome))}
-      <span class="st">Groot ID ${esc(x.id) || "–"}${x.turno ? ` · ${esc(x.turno)}` : ""}${x.hor ? ` · ${esc(x.hor)}` : ""}${ab ? ` · no lugar de ${esc(title(ab.nome))}${ab.esc ? ` (${esc(ab.esc)})` : ""}` : ""}</span></span>
-      <span class="tag ${ab ? "ok" : "livre"}">${ab ? "Cobrindo" : "Livre"}</span>
+    const ak = used.get(dKey(x)), ab = ak ? absByKey.get(ak) : null, ml = meliSet.has(dKey(x));
+    return `<div class="dl ${ab || ml ? "" : "livre"}"><span class="nm" title="${esc(x.nome)}">${esc(title(x.nome))}
+      <span class="st">Groot ID ${esc(x.id) || "–"}${x.turno ? ` · ${esc(x.turno)}` : ""}${x.hor ? ` · ${esc(x.hor)}` : ""}${ab ? ` · no lugar de ${esc(title(ab.nome))}${ab.esc ? ` (${esc(ab.esc)})` : ""}` : ml ? " · escala de diarista Meli" : ""}</span></span>
+      <span class="tag ${ab ? "ok" : ml ? "meli-t" : "livre"}">${ab ? "Cobrindo" : ml ? "Meli" : "Livre"}</span>
       <button class="del" data-rm="${esc(dKey(x))}" title="Tirar da lista do dia" aria-label="Tirar ${esc(x.nome)} da lista">✕</button></div>`;
   }).join("");
   $("#cDList").querySelectorAll("[data-rm]").forEach(b => b.addEventListener("click", () => {
-    const k = b.dataset.rm; DIAR[d].list = DIAR[d].list.filter(x => dKey(x) !== k); saveDiar(); renderCob(); }));
+    const k = b.dataset.rm; DIAR[d].list = DIAR[d].list.filter(x => dKey(x) !== k);
+    const at = ATRIB[d] || {}; Object.keys(at).forEach(a => { if (at[a] === k) delete at[a]; }); ATRIB[d] = at;
+    if (MELI[d]) MELI[d] = MELI[d].filter(m => m.k !== k);
+    saveDiar(); saveAtrib(); saveMeli(); cobMexeu(d); renderCob(); }));
 }
 
 function cobWppText(){
-  const d = S.cday, {rows, byKey, at, livres} = cobState(d);
+  const d = S.cday, {rows, byKey, at, livres, meli} = cobState(d);
   const cob = rows.filter(r => at[r.key]).length;
   let t = `*COBERTURA DE ABS – ${br(d)} (${WD[wdOf(d)]})*\n\nABS: *${rows.length}*  |  Cobertas: *${cob}*  |  Sem diarista: *${rows.length - cob}*\n`;
   let lastG = null;
@@ -1354,14 +1487,15 @@ function cobWppText(){
     const x = at[r.key] ? byKey.get(at[r.key]) : null;
     t += `• ${title(r.nome)} (${r.esc || "s/ escala"}${r.ant ? ` / ${r.ant}` : ""}) → ${x ? `${title(x.nome)}${x.id ? ` (${x.id})` : ""}` : "⚠️ sem diarista"}\n`;
   });
-  if (livres.length) t += `\n🟡 *Diaristas livres (escala aberta Meli)*\n` + livres.map(x => `• ${title(x.nome)}${x.id ? ` (${x.id})` : ""}`).join("\n") + "\n";
+  if (meli.length) t += `\n🟣 *Escala de diarista Meli (${meli.length})*\n` + meli.map(x => `• ${title(x.nome)}${x.id ? ` (${x.id})` : ""}${x.hor ? ` – ${x.hor}` : ""}`).join("\n") + "\n";
+  if (livres.length) t += `\n🟡 *Diaristas livres*\n` + livres.map(x => `• ${title(x.nome)}${x.id ? ` (${x.id})` : ""}`).join("\n") + "\n";
   return t.trim();
 }
 
 async function exportCob(){
   if (typeof ExcelJS === "undefined"){ toast("Biblioteca de Excel não carregou. Verifique a internet."); return; }
-  const d = S.cday, {rows, byKey, at, livres} = cobState(d);
-  if (!rows.length && !livres.length){ toast("Nada para exportar nesse dia"); return; }
+  const d = S.cday, {rows, byKey, at, livres, meli} = cobState(d);
+  if (!rows.length && !livres.length && !meli.length){ toast("Nada para exportar nesse dia"); return; }
   const wb = new ExcelJS.Workbook(); const ws = wb.addWorksheet("Cobertura", {views:[{state:"frozen", ySplit:3}]});
   ws.columns = [{width:11},{width:40},{width:11},{width:14},{width:14},{width:10},{width:3},{width:38},{width:14}];
   const thin = {style:"thin", color:{argb:"FFBFC7D1"}}, box = {top:thin,left:thin,bottom:thin,right:thin};
@@ -1385,12 +1519,18 @@ async function exportCob(){
   });
   const cob = rows.filter(x => at[x.key]).length;
   r++;
-  [["TOTAL DE ABS", rows.length], ["COBERTAS", cob], ["SEM DIARISTA", rows.length - cob], ["DIARISTAS LIVRES", livres.length]].forEach(([l,v]) => {
+  [["TOTAL DE ABS", rows.length], ["COBERTAS", cob], ["SEM DIARISTA", rows.length - cob], ["ESCALA DIARISTA MELI", meli.length], ["DIARISTAS LIVRES", livres.length]].forEach(([l,v]) => {
     const a = ws.getCell(`A${r}`), b = ws.getCell(`C${r}`); ws.mergeCells(`A${r}:B${r}`);
     a.value = l; b.value = v; [a,b].forEach(c => { c.font = {bold:true}; c.border = box; c.fill = fill("FFE2EFDA"); }); b.alignment = {horizontal:"center"}; r++;
   });
+  if (meli.length){
+    r++; ws.mergeCells(`H${r}:I${r}`); const mt = ws.getCell(`H${r}`); mt.value = "ESCALA DE DIARISTA MELI";
+    mt.font = {bold:true, color:{argb:"FFFFFFFF"}}; mt.fill = fill("FF7A4FD1"); r++;
+    meli.forEach(x => { const row = ws.getRow(r++); row.getCell(8).value = x.nome; row.getCell(9).value = x.id === "" ? null : x.id;
+      [8,9].forEach(i => { row.getCell(i).border = box; }); row.getCell(9).alignment = {horizontal:"center"}; });
+  }
   if (livres.length){
-    r++; ws.mergeCells(`H${r}:I${r}`); const lt = ws.getCell(`H${r}`); lt.value = "DIARISTAS LIVRES (ESCALA ABERTA MELI)";
+    r++; ws.mergeCells(`H${r}:I${r}`); const lt = ws.getCell(`H${r}`); lt.value = "DIARISTAS LIVRES";
     lt.font = {bold:true, color:{argb:"FFFFFFFF"}}; lt.fill = fill("FFB7791F"); r++;
     livres.forEach(x => { const row = ws.getRow(r++); row.getCell(8).value = x.nome; row.getCell(9).value = x.id === "" ? null : x.id;
       [8,9].forEach(i => { row.getCell(i).border = box; }); row.getCell(9).alignment = {horizontal:"center"}; });
@@ -1402,17 +1542,99 @@ async function exportCob(){
   toast(`${nome} gerado`);
 }
 
+/* ===== Cobertura → Google Sheets (Apps Script da planilha "Cobertura ABS") ===== */
+const COB_GS = "/* Cobertura ABS — cole este código na planilha (Extensões → Apps Script) e implante como App da Web.\n   Executar como: Eu · Quem pode acessar: Qualquer pessoa. */\nconst ABA_DADOS = \"_dados_cobertura\";\n\nfunction doGet(e){\n  const p = (e && e.parameter) || {};\n  if (p.acao === \"ler\" && p.dia){\n    const v = dados_().getDataRange().getValues();\n    for (let i = 1; i < v.length; i++) if (String(v[i][0]) === \"d\" + p.dia)\n      return json_({ok:true, at:Number(v[i][1]) || 0, estado:JSON.parse(v[i][2] || \"null\")});\n    return json_({ok:true, at:0, estado:null});\n  }\n  return json_({ok:true, url:SpreadsheetApp.getActive().getUrl()});\n}\n\nfunction doPost(e){\n  const lock = LockService.getScriptLock(); lock.waitLock(20000);\n  try{\n    const b = JSON.parse(e.postData.contents);\n    const ss = SpreadsheetApp.getActive();\n    const sh = dados_(), v = sh.getDataRange().getValues(), chave = \"d\" + b.dia;\n    const linha = [chave, b.at || Date.now(), JSON.stringify(b.estado || {})];\n    let row = 0; for (let i = 1; i < v.length; i++) if (String(v[i][0]) === chave){ row = i + 1; break; }\n    if (row) sh.getRange(row, 1, 1, 3).setValues([linha]); else sh.appendRow(linha);\n    const aba = b.soEstado ? null : escreveDia_(ss, b);\n    return json_({ok:true, url: ss.getUrl() + (aba ? \"#gid=\" + aba.getSheetId() : \"\")});\n  } catch(err){ return json_({ok:false, erro:String(err)}); }\n  finally{ lock.releaseLock(); }\n}\n\nfunction dados_(){\n  const ss = SpreadsheetApp.getActive();\n  let sh = ss.getSheetByName(ABA_DADOS);\n  if (!sh){ sh = ss.insertSheet(ABA_DADOS); sh.appendRow([\"dia\",\"atualizado\",\"estado\"]); sh.hideSheet(); }\n  return sh;\n}\n\nfunction escreveDia_(ss, b){\n  const nome = \"Cobertura \" + b.diaBr.replace(/\\//g, \"-\");\n  let sh = ss.getSheetByName(nome);\n  if (!sh){ sh = ss.insertSheet(nome, 0); } else { sh.clear(); sh.getRange(1,1,sh.getMaxRows(),sh.getMaxColumns()).breakApart(); }\n  const AZUL = \"#0b5a8a\", VERDE = \"#22865a\", ROXO = \"#7a4fd1\", AMARELO = \"#b7791f\";\n  sh.getRange(\"A1:I1\").merge().setValue(\"COBERTURA DE ABS – \" + b.diaBr + \" (\" + b.semana + \")\")\n    .setFontSize(14).setFontWeight(\"bold\").setFontColor(\"#1f3b57\");\n  sh.getRange(\"A2:F2\").merge().setValue(\"QUEM FALTOU\").setBackground(AZUL);\n  sh.getRange(\"H2:I2\").merge().setValue(\"DIARISTA QUE COBRE\").setBackground(VERDE);\n  sh.getRangeList([\"A2:F2\",\"H2:I2\"]).setFontColor(\"#ffffff\").setFontWeight(\"bold\").setHorizontalAlignment(\"center\");\n  sh.getRange(\"A3:I3\").setValues([[\"GROOT ID\",\"NOME\",\"TIPO\",\"ESCALA\",\"ESCALA ANTIGA\",\"HORÁRIO\",\"\",\"NOME DO DIARISTA\",\"GROOT ID DIARISTA\"]]).setFontWeight(\"bold\");\n  sh.getRange(\"A3:F3\").setBackground(\"#e2edfa\"); sh.getRange(\"H3:I3\").setBackground(\"#e2efda\");\n  let r = 4;\n  const L = b.linhas || [];\n  if (L.length){\n    const vals = L.map(x => [x[0], x[1], x[2], x[3], x[4], x[5], \"\", x[6] || \"SEM DIARISTA\", x[7] || \"\"]);\n    sh.getRange(r, 1, vals.length, 9).setValues(vals);\n    sh.getRange(r, 1, vals.length, 6).setBorder(true,true,true,true,true,true,\"#bfc7d1\",null);\n    sh.getRange(r, 8, vals.length, 2).setBorder(true,true,true,true,true,true,\"#bfc7d1\",null);\n    L.forEach((x, i) => {\n      sh.getRange(r + i, 3).setFontWeight(\"bold\").setFontColor(x[2] === \"FALTA\" ? \"#c00000\" : \"#2c74c9\");\n      if (!x[6]) sh.getRange(r + i, 8).setFontWeight(\"bold\").setFontColor(AMARELO).setBackground(\"#fff4d6\");\n    });\n    r += vals.length;\n  }\n  r++;\n  const t = b.totais || {};\n  [[\"TOTAL DE ABS\", t.abs], [\"COBERTAS\", t.cob], [\"SEM DIARISTA\", t.sem], [\"ESCALA DIARISTA MELI\", t.meli], [\"DIARISTAS LIVRES\", t.livres]].forEach(([l, n]) => {\n    sh.getRange(r, 1, 1, 2).merge().setValue(l); sh.getRange(r, 3).setValue(n || 0).setHorizontalAlignment(\"center\");\n    sh.getRange(r, 1, 1, 3).setFontWeight(\"bold\").setBackground(\"#e2efda\"); r++;\n  });\n  const bloco = (titulo, cor, lista) => {\n    if (!lista || !lista.length) return;\n    r++; sh.getRange(r, 8, 1, 2).merge().setValue(titulo).setBackground(cor).setFontColor(\"#ffffff\").setFontWeight(\"bold\"); r++;\n    sh.getRange(r, 8, lista.length, 2).setValues(lista.map(x => [x[0], x[1] || \"\"]))\n      .setBorder(true,true,true,true,true,true,\"#bfc7d1\",null);\n    r += lista.length;\n  };\n  bloco(\"ESCALA DE DIARISTA MELI (\" + (b.meli || []).length + \")\", ROXO, b.meli);\n  bloco(\"DIARISTAS LIVRES\", AMARELO, b.livres);\n  [11,40,11,14,14,10,3,38,16].forEach((w, i) => sh.setColumnWidth(i + 1, w * 7));\n  sh.getRange(\"A:A\").setHorizontalAlignment(\"center\"); sh.getRange(\"C:G\").setHorizontalAlignment(\"center\"); sh.getRange(\"I:I\").setHorizontalAlignment(\"center\");\n  sh.getRange(\"A1\").setHorizontalAlignment(\"left\");\n  sh.setFrozenRows(3);\n  ss.setActiveSheet(sh);\n  return sh;\n}\n\nfunction json_(o){ return ContentService.createTextOutput(JSON.stringify(o)).setMimeType(ContentService.MimeType.JSON); }\n";
+const cobSheetUrl = () => (store.get("cobsheet", null) || {}).url || "";
+let COB_SYNC = {st:"", at:0, err:""}, _cobT = null, _cobDia = null;
+function cobSyncInfo(){
+  const el = $("#cSync"); if (!el) return;
+  if (!cobSheetUrl()){ el.innerHTML = `Planilha do Google não ligada. <button type="button" class="ghost" id="cSyncCfg">Ligar planilha</button>`; const b = $("#cSyncCfg"); if (b) b.onclick = openCobSheet; return; }
+  const h = t => new Date(t).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"});
+  el.innerHTML = COB_SYNC.st === "salvando" ? "☁ Gravando na planilha…"
+    : COB_SYNC.st === "erro" ? `<b style="color:var(--falta)">☁ Não gravou na planilha:</b> ${esc(COB_SYNC.err)} <button type="button" class="ghost" id="cSyncRetry">Tentar de novo</button>`
+    : COB_SYNC.at ? `☁ Salvo na planilha às ${h(COB_SYNC.at)}` : "☁ Ligado à planilha do Google";
+  const rb = $("#cSyncRetry"); if (rb) rb.onclick = () => cobPush(S.cday);
+}
+function cobPayload(d){
+  const st = cobState(d);
+  const cob = st.rows.filter(r => st.at[r.key] && st.byKey.has(st.at[r.key])).length;
+  const wd = WD[wdOf(d)];
+  return {
+    dia: d, diaBr: br(d), semana: wd, at: COBAT[d] || Date.now(),
+    linhas: st.rows.map(r => { const x = st.at[r.key] ? st.byKey.get(st.at[r.key]) : null; return [r.id === "" ? "" : r.id, r.nome, r.tipo, r.esc || "", r.ant || "", r.hor || "", x ? x.nome : "", x ? (x.id || "") : ""]; }),
+    meli: st.meli.map(x => [x.nome, x.id || "", x.hor || ""]),
+    livres: st.livres.map(x => [x.nome, x.id || "", x.hor || ""]),
+    totais: {abs: st.rows.length, cob, sem: st.rows.length - cob, meli: st.meli.length, livres: st.livres.length},
+    estado: {atrib: ATRIB[d] || {}, atribm: ATRIBM[d] || {}, meli: MELI[d] || [], manuais: ((DIAR[d]?.list) || []).filter(x => x.manual)}
+  };
+}
+function cobSyncLater(d){ if (!cobSheetUrl()) return; clearTimeout(_cobT); _cobDia = d; _cobT = setTimeout(() => { _cobT = null; cobPush(d); }, 2500); }
+async function cobPush(d){
+  const url = cobSheetUrl(); if (!url) return null;
+  if (_cobT && _cobDia === d){ clearTimeout(_cobT); _cobT = null; }
+  COB_SYNC = {...COB_SYNC, st:"salvando"}; cobSyncInfo();
+  try{
+    const res = await fetch(url, {method:"POST", body: JSON.stringify(cobPayload(d))});
+    const j = await res.json();
+    if (!j.ok) throw new Error(j.erro || "a planilha recusou");
+    COB_SYNC = {st:"ok", at:Date.now(), err:""}; cobSyncInfo();
+    return j.url;
+  }catch(e){ COB_SYNC = {st:"erro", at:COB_SYNC.at, err:e.message}; cobSyncInfo(); return null; }
+}
+/* ao abrir o dia: se a planilha tem uma versão mais nova (feita em outro aparelho), usa ela */
+async function cobPull(d){
+  const url = cobSheetUrl(); if (!url) return;
+  try{
+    const j = await (await fetch(`${url}${url.includes("?") ? "&" : "?"}acao=ler&dia=${d}&_=${Date.now()}`, {cache:"no-store"})).json();
+    if (!j.ok || !j.estado || !(j.at > (COBAT[d] || 0))) return;
+    if (_cobT && _cobDia === d) return;   // tem mudança local esperando pra subir
+    const e = j.estado;
+    ATRIB[d] = e.atrib || {}; ATRIBM[d] = e.atribm || {}; MELI[d] = e.meli || [];
+    if (!DIAR[d]) DIAR[d] = {list: [], src: "lista", at: Date.now()};
+    const man = semDuplicar(e.manuais || [], DIAR[d].list);
+    if (man.length){ DIAR[d].list.push(...man); DIAR[d].list.sort((a,b) => a.nome.localeCompare(b.nome, "pt-BR")); saveDiar(); }
+    COBAT[d] = j.at; storeSafe("cobat", COBAT); saveAtrib(); saveMeli();
+    COB_SYNC = {st:"ok", at:Date.now(), err:""};
+    if (S.cday === d && S.tab === "cob") renderCob();
+  }catch(e){ console.warn("planilha da cobertura", e); }
+}
+async function cobOpenSheet(){
+  if (!cobSheetUrl()){ openCobSheet(); return; }
+  const w = window.open("", "_blank");
+  if (w) try{ w.document.write('<p style="font:16px sans-serif;padding:24px">Gravando a cobertura na planilha…</p>'); }catch(e){}
+  const u = await cobPush(S.cday);
+  if (!u){ if (w) w.close(); toast("Não consegui gravar na planilha: " + COB_SYNC.err); return; }
+  if (w) w.location.href = u; else { const a = document.createElement("a"); a.href = u; a.target = "_blank"; document.body.appendChild(a); a.click(); a.remove(); }
+  toast("Cobertura gravada na planilha");
+}
+function openCobSheet(){ $("#csUrl").value = cobSheetUrl(); $("#csMsg").textContent = ""; $("#dlgCobSheet").showModal(); }
+$("#cSheet").addEventListener("click", cobOpenSheet);
+$("#csClose").addEventListener("click", () => $("#dlgCobSheet").close());
+$("#csCopy").addEventListener("click", () => copyText(COB_GS));
+$("#csGo").addEventListener("click", async () => {
+  const u = $("#csUrl").value.trim();
+  if (!u){ store.set("cobsheet", null); $("#csMsg").textContent = "Planilha desligada."; cobSyncInfo(); return; }
+  if (!/^https:\/\/script\.google\.com\/macros\/s\/[^/]+\/exec/.test(u)){ $("#csMsg").textContent = "A URL deve ser do tipo https://script.google.com/macros/s/.../exec"; return; }
+  $("#csMsg").textContent = "Testando…";
+  try{
+    const j = await (await fetch(u + "?_=" + Date.now(), {cache:"no-store"})).json();
+    if (!j.ok) throw new Error("resposta inesperada");
+    store.set("cobsheet", {url: u}); $("#csMsg").textContent = "Ligada! Gravando o dia…";
+    await cobPush(S.cday); $("#dlgCobSheet").close(); renderCob(); toast("Planilha da Cobertura ligada");
+  }catch(e){ $("#csMsg").textContent = "Não consegui falar com o Apps Script. Confira se implantou como App da Web com acesso \"Qualquer pessoa\"."; }
+});
+
 function goCday(k){
   if (k < START){ toast(`A contagem começa em ${br(START)}`); return; }
   S.cday = k; renderCob();
-  loadDiarDB(true);
+  loadDiarDB(true); cobPull(k);
 }
 $("#cPrev").addEventListener("click", () => goCday(addDays(S.cday, -1)));
 $("#cNext").addEventListener("click", () => goCday(addDays(S.cday, 1)));
 $("#cToday").addEventListener("click", () => goCday(todayKey()));
 $("#cPick").addEventListener("change", e => { if (e.target.value) goCday(e.target.value); });
 $("#cAuto").addEventListener("click", autoDistrib);
-$("#cClear").addEventListener("click", () => { if (!Object.keys(ATRIB[S.cday] || {}).length) return; if (!confirm(`Tirar todos os diaristas das ausências de ${br(S.cday)}?`)) return; ATRIB[S.cday] = {}; saveAtrib(); renderCob(); });
+$("#cClear").addEventListener("click", () => { if (!Object.keys(ATRIB[S.cday] || {}).length) return; if (!confirm(`Tirar todos os diaristas das ausências de ${br(S.cday)}?`)) return; ATRIB[S.cday] = {}; saveAtrib(); cobMexeu(S.cday); renderCob(); });
 $("#cExp").addEventListener("click", exportCob);
 $("#cWpp").addEventListener("click", () => { const t = cobWppText(); $("#wppText").value = t; $("#wppOpen").href = "https://wa.me/?text=" + encodeURIComponent(t); $("#dlgWpp").showModal(); });
 $("#cDLoad").addEventListener("click", () => { loadDiarDB(false); loadEscalas(true); });
@@ -1423,7 +1645,7 @@ $("#diarGo").addEventListener("click", () => {
   const list = parseDiarText($("#diarTxt").value).map(x => ({...x, manual:true}));
   if (!list.length){ toast("Não achei nenhum diarista no texto"); return; }
   setDiar(S.cday, list, DIAR[S.cday]?.src === "banco" && $("#diarMode").value === "merge" ? "banco" : "lista", $("#diarMode").value);
-  $("#dlgDiar").close(); renderCob(); toast(`${list.length} diaristas adicionados em ${br(S.cday)}`);
+  $("#dlgDiar").close(); cobMexeu(S.cday); renderCob(); toast(`${list.length} diaristas adicionados em ${br(S.cday)}`);
 });
 $("#cfgClose").addEventListener("click", () => $("#dlgDiarCfg").close());
 $("#cfgGo").addEventListener("click", async () => {
@@ -1444,7 +1666,7 @@ async function diarRangeDB(a, b){
     const r = await fetch(`${c.url.replace(/\/+$/,"")}/rest/v1/${encodeURIComponent(c.table||"historico_diarias")}?select=data,nome,groot_id,turno,horario_entrada&data=gte.${a}&data=lte.${b}&order=data,nome`, {headers:h, cache:"no-store"});
     if (!r.ok) return;
     const por = {}; (await r.json()).forEach(x => { if (!x.nome) return; (por[x.data] ||= []).push({id: x.groot_id ? toId(x.groot_id) : "", nome: String(x.nome).trim(), turno: x.turno||"", hor: x.horario_entrada ? String(x.horario_entrada).slice(0,5) : ""}); });
-    for (const [d, list] of Object.entries(por)){ const seen = new Set(); const extra = (DIAR[d]?.list||[]).filter(x => x.manual);
+    for (const [d, list] of Object.entries(por)){ const seen = new Set(); const extra = semDuplicar((DIAR[d]?.list||[]).filter(x => x.manual), list);
       setDiar(d, await completarIds([...list.filter(x => !seen.has(dKey(x)) && seen.add(dKey(x))), ...extra]), "banco", "replace"); }
   }catch(e){ console.warn("diaristas do período", e); }
 }
@@ -1462,7 +1684,7 @@ async function cobParaExport(src, a, b){
 }
 
 /* ===== Abas / render ===== */
-function setTab(t){ S.tab=t; store.set("tab",t); document.querySelectorAll(".tabs button").forEach(b=>b.setAttribute("aria-selected", b.dataset.tab===t)); ["lanc","cob","dia","ciclo","pess","reg"].forEach(x=>$("#tab-"+x).hidden = x!==t); render(); if(t==="cob"){ loadDiarDB(true); loadEscalas(false); } }
+function setTab(t){ S.tab=t; store.set("tab",t); document.querySelectorAll(".tabs button").forEach(b=>b.setAttribute("aria-selected", b.dataset.tab===t)); ["lanc","cob","dia","ciclo","pess","reg"].forEach(x=>$("#tab-"+x).hidden = x!==t); render(); if(t==="cob"){ loadDiarDB(true); loadEscalas(false); cobPull(S.cday); } }
 function renderSource(){
   const dot=$("#srcDot"), tx=$("#srcText");
   const ds=DATA.map(r=>r.d).sort();
