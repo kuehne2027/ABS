@@ -176,7 +176,18 @@ select.dsel.vazio{border-color:var(--warn);color:var(--warn);font-weight:600}
 .meli .add{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:4px}
 .meli .add select{flex:1;min-width:200px}
 .tag.meli-t{background:color-mix(in srgb,var(--meli) 16%,transparent);color:var(--meli)}
-:root{--meli:#7a4fd1}
+.repo{margin-top:14px;border:1px solid color-mix(in srgb,var(--repo) 35%,transparent);border-radius:12px;overflow:hidden}
+.repo .mh{background:var(--repo);color:#fff;font-family:var(--f-display);font-size:15px;letter-spacing:.04em;padding:7px 10px;display:flex;justify-content:space-between;align-items:center;gap:8px}
+.repo .mh small{font-family:inherit;font-size:12px;opacity:.9;letter-spacing:0}
+.repo .mb{padding:10px;display:grid;gap:6px;background:color-mix(in srgb,var(--repo) 6%,transparent)}
+.repo .ri{display:grid;grid-template-columns:28px minmax(150px,220px) 1fr auto auto;align-items:center;gap:8px;padding:6px 8px;border-radius:8px;background:var(--card,transparent);border:1px solid var(--soft)}
+.repo .ri select{width:100%}
+.repo .ri .s{font-size:12px;color:var(--muted)}
+.repo .add{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:4px}
+.repo .hd{display:grid;grid-template-columns:28px minmax(150px,220px) 1fr auto auto;gap:8px;padding:0 8px;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+@media (max-width:640px){.repo .ri{grid-template-columns:24px 1fr auto}.repo .ri .dsel2{grid-column:2 / 3}.repo .ri .s{grid-column:2 / 4}.repo .hd{display:none}}
+.tag.repo-t{background:color-mix(in srgb,var(--repo) 16%,transparent);color:var(--repo)}
+:root{--meli:#7a4fd1;--repo:#0e7c86}
 .dl{display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--soft)}
 .dl .nm{flex:1;min-width:0;text-transform:capitalize;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dl .st{font-size:11.5px;color:var(--muted);display:block;text-transform:none;white-space:normal}
@@ -329,6 +340,7 @@ select.dsel.vazio{border-color:var(--warn);color:var(--warn);font-weight:600}
         <p class="sub">Cada ausência numa linha. Escolha o diarista na seta do bloco verde, ou use "Distribuir diaristas" para preencher sozinho.</p>
         <div class="scroll" id="cTable"></div>
         <div class="meli" id="cMeli"></div>
+        <div class="repo" id="cRepo"></div>
         <p class="sub" id="cSync" style="margin:12px 0 0"></p>
       </div>
       <div class="card">
@@ -1120,6 +1132,7 @@ let DIAR = store.get("diar", {});     // dia -> {list:[{id,nome,turno,hor}], src
 let ATRIB = store.get("atrib", {});   // dia -> {chaveDoABS: chaveDoDiarista}
 let MELI = store.get("meli", {});     // dia -> [{k, nome, id, hor, turno}] diaristas que ficaram na escala de diarista do Meli
 let COBAT = store.get("cobat", {});   // dia -> quando a cobertura foi mexida neste aparelho (para casar com a planilha)
+let REPO = store.get("repo", {});     // dia -> [{ant, k, nome, id, hor, turno}] reposição de quadro (escala antiga + diarista)
 let ATRIBM = store.get("atribm", {}); // dia -> {chaveDoABS: {an: nome do ABS, dn, did, hor, turno}} (cópia de quem cobre, para nunca perder)
 S.cday = todayKey();
 const dKey = d => idKey(d.id) || norm(d.nome);
@@ -1154,6 +1167,7 @@ function saveAtrib(){
   storeSafe("atrib", ATRIB); storeSafe("atribm", ATRIBM);
 }
 const saveMeli = () => storeSafe("meli", MELI);
+const saveRepo = () => storeSafe("repo", REPO);
 /* marca o dia como alterado e manda pra planilha (se ligada) */
 function cobMexeu(d){ COBAT[d] = Date.now(); storeSafe("cobat", COBAT); cobSyncLater(d); }
 /* mesmo banco do app Controle de Diaristas (kuehne-diaristas) — leitura pública, sem CPF */
@@ -1265,15 +1279,26 @@ function cobState(d){
     if (!x){ x = {id: m.id || "", nome: m.nome, turno: m.turno || "", hor: m.hor || "", manual: true}; list.push(x); listChanged = true; }
     if (dKey(x) !== m.k || x.nome !== m.nome || String(x.id||"") !== String(m.id||"")){ m.k = dKey(x); m.nome = x.nome; m.id = x.id || ""; melChanged = true; }
   });
+  // 4) reposição de quadro: mesma proteção
+  const rep = REPO[d] || []; let repChanged = false;
+  rep.forEach(m => {
+    if (!m.k) return;
+    let x = findDiar(m.k, {did: m.id, dn: m.nome});
+    if (!x){ x = {id: m.id || "", nome: m.nome, turno: m.turno || "", hor: m.hor || "", manual: true}; list.push(x); listChanged = true; }
+    if (dKey(x) !== m.k || x.nome !== m.nome || String(x.id||"") !== String(m.id||"")){ m.k = dKey(x); m.nome = x.nome; m.id = x.id || ""; repChanged = true; }
+  });
+  if (repChanged){ REPO[d] = rep; saveRepo(); }
   if (listChanged){ list.sort((a,b) => a.nome.localeCompare(b.nome, "pt-BR")); saveDiar(); }
   if (changed){ ATRIB[d] = at; ATRIBM[d] = meta; saveAtrib(); }
   if (melChanged){ MELI[d] = mel; saveMeli(); }
   const byKey = new Map(list.map(x => [dKey(x), x]));
   const meliSet = new Set(mel.map(m => m.k));
-  const used = new Map(); Object.entries(at).forEach(([ak, dk]) => { if (valid.has(ak) && byKey.has(dk) && !meliSet.has(dk)) used.set(dk, ak); });
+  const repoSet = new Set(rep.filter(m => m.k && byKey.has(m.k)).map(m => m.k));
+  const used = new Map(); Object.entries(at).forEach(([ak, dk]) => { if (valid.has(ak) && byKey.has(dk) && !meliSet.has(dk) && !repoSet.has(dk)) used.set(dk, ak); });
   const meli = mel.map(m => byKey.get(m.k)).filter(Boolean);
-  const livres = list.filter(x => !used.has(dKey(x)) && !meliSet.has(dKey(x)));
-  return {rows, list, byKey, at, used, livres, meli, meliSet};
+  const repo = rep.map(m => ({ant: m.ant || "", x: m.k ? byKey.get(m.k) || null : null}));
+  const livres = list.filter(x => !used.has(dKey(x)) && !meliSet.has(dKey(x)) && !repoSet.has(dKey(x)));
+  return {rows, list, byKey, at, used, livres, meli, meliSet, repo, repoSet};
 }
 
 /* lê lista colada: Groot ID + nome (+ turno/horário opcionais) */
@@ -1373,7 +1398,8 @@ function autoDistrib(){
 function setAtrib(absKey, dk){
   const d = S.cday; const at = {...(ATRIB[d] || {})};
   if (dk){ Object.keys(at).forEach(k => { if (at[k] === dk) delete at[k]; }); at[absKey] = dk;
-    if ((MELI[d]||[]).some(m => m.k === dk)){ MELI[d] = MELI[d].filter(m => m.k !== dk); saveMeli(); } }
+    if ((MELI[d]||[]).some(m => m.k === dk)){ MELI[d] = MELI[d].filter(m => m.k !== dk); saveMeli(); }
+    tiraDaRepo(d, dk); }
   else delete at[absKey];
   ATRIB[d] = at; saveAtrib(); cobMexeu(d); renderCob();
 }
@@ -1384,13 +1410,40 @@ function setMeli(dk, on){
   if (on){
     mel.push({k: dk, nome: x.nome, id: x.id || "", hor: x.hor || "", turno: x.turno || ""});
     const at = ATRIB[d] || {}; Object.keys(at).forEach(a => { if (at[a] === dk) delete at[a]; }); ATRIB[d] = at; saveAtrib();
+    tiraDaRepo(d, dk);
   }
   MELI[d] = mel; saveMeli(); cobMexeu(d); renderCob();
 }
 
+/* reposição de quadro: escala antiga + diarista que repõe */
+function tiraDaRepo(d, dk){ const r = REPO[d]; if (!r || !r.some(m => m.k === dk)) return; r.forEach(m => { if (m.k === dk){ m.k = ""; m.nome = ""; m.id = ""; m.hor = ""; m.turno = ""; } }); saveRepo(); }
+function escalasAntigas(){
+  const m = new Map();
+  Object.entries(ESCALA_ANTIGA_PARA_CHAVE).forEach(([c, k]) => m.set(c, k));
+  Object.values(ESCN.map || {}).forEach(v => { const a = String(v.ant || "").trim(); if (a && !m.has(a)) m.set(a, chaveDaEscala(a) || chaveDaEscala(v.esc) || ""); });
+  return [...m.entries()].sort((a,b) => a[0].localeCompare(b[0], "pt-BR", {numeric:true}));
+}
+function addRepo(){ const d = S.cday; (REPO[d] ||= []).push({ant:"", k:"", nome:"", id:"", hor:"", turno:""}); saveRepo(); cobMexeu(d); renderCob(); }
+function setRepo(i, campo, v){
+  const d = S.cday, r = REPO[d]; if (!r || !r[i]) return;
+  if (campo === "ant") r[i].ant = v;
+  else {
+    const st = cobState(d), x = v ? st.byKey.get(v) : null;
+    if (x){
+      r.forEach((m, j) => { if (j !== i && m.k === v){ m.k = ""; m.nome = ""; m.id = ""; m.hor = ""; m.turno = ""; } });
+      const at = ATRIB[d] || {}; Object.keys(at).forEach(a => { if (at[a] === v) delete at[a]; }); ATRIB[d] = at; saveAtrib();
+      if ((MELI[d]||[]).some(m => m.k === v)){ MELI[d] = MELI[d].filter(m => m.k !== v); saveMeli(); }
+      Object.assign(r[i], {k: v, nome: x.nome, id: x.id || "", hor: x.hor || "", turno: x.turno || ""});
+    } else Object.assign(r[i], {k:"", nome:"", id:"", hor:"", turno:""});
+  }
+  saveRepo(); cobMexeu(d); renderCob();
+}
+function delRepo(i){ const d = S.cday, r = REPO[d]; if (!r) return; r.splice(i, 1); if (!r.length) delete REPO[d]; saveRepo(); cobMexeu(d); renderCob(); }
+
+const hrRepoDica = r => r.length ? `<span class="note">★ = diarista com horário perto do horário da escala</span>` : "";
 function renderCob(){
   const d = S.cday; $("#cPick").value = d; $("#cBig").textContent = br(d); $("#cWd").textContent = WD[wdOf(d)];
-  const st = cobState(d); const {rows, list, byKey, at, used, livres, meli, meliSet} = st;
+  const st = cobState(d); const {rows, list, byKey, at, used, livres, meli, meliSet, repo, repoSet} = st;
   const cob = rows.filter(r => at[r.key]).length;
   $("#cKpis").innerHTML = `
     <div class="kpi"><div class="l">Ausências no dia</div><div class="v">${rows.length}</div><div class="s">${rows.filter(r=>r.tipo==="FALTA").length} falta · ${rows.filter(r=>r.tipo==="ATESTADO").length} atestado</div></div>
@@ -1398,7 +1451,8 @@ function renderCob(){
     <div class="kpi ok"><div class="l">Cobertas</div><div class="v">${cob}</div><div class="s">${pct(cob, rows.length)}% das ausências</div></div>
     <div class="kpi falta"><div class="l">Sem diarista</div><div class="v">${rows.length - cob}</div><div class="s">ausências descobertas</div></div>
     <div class="kpi"><div class="l">Escala diarista Meli</div><div class="v" style="color:var(--meli)">${meli.length}</div><div class="s">diaristas que ficaram pro Meli</div></div>
-    <div class="kpi warn"><div class="l">Diaristas livres</div><div class="v">${livres.length}</div><div class="s">sem ABS e sem escala Meli</div></div>`;
+    <div class="kpi"><div class="l">Reposição de quadro</div><div class="v" style="color:var(--repo)">${repo.filter(r => r.x).length}</div><div class="s">${repo.length} ${repo.length === 1 ? "vaga" : "vagas"} de reposição</div></div>
+    <div class="kpi warn"><div class="l">Diaristas livres</div><div class="v">${livres.length}</div><div class="s">sem ABS, Meli ou reposição</div></div>`;
   const semEsc = rows.filter(r => !r.esc && !r.ant && !r.hor).length;
   const escOk = Object.keys(ESCN.map).length;
   $("#cWarn").innerHTML = semEsc ? `<div class="warnbox"><b>${semEsc} de ${rows.length} ausências estão sem escala/horário.</b><span class="note">${escOk ? `As escalas vêm do ${esc(ESCN.src)} (${fmt(escOk)} pessoas), mas esses nomes não bateram com nenhuma escala. Confira se o nome está igual nas duas listas, ou importe a aba GRUPOS em "Lançar ABS → Importar lista de colaboradores".` : (ESC_LOADING ? "Buscando as escalas no Painel KN…" : `Não consegui ler as escalas do Painel KN agora. <button type="button" id="cEscRetry">Tentar de novo</button>`)}</span></div>` : "";
@@ -1408,7 +1462,7 @@ function renderCob(){
   if (!rows.length){ $("#cTable").innerHTML = `<div class="empty">Nenhuma ausência lançada em ${br(d)}.</div>`; }
   else {
     const opts = cur => {
-      const pool = list.filter(x => (!used.has(dKey(x)) && !meliSet.has(dKey(x))) || dKey(x) === cur);
+      const pool = list.filter(x => (!used.has(dKey(x)) && !meliSet.has(dKey(x)) && !repoSet.has(dKey(x))) || dKey(x) === cur);
       return `<option value="">— sem diarista —</option>` + pool.map(x => `<option value="${esc(dKey(x))}"${dKey(x) === cur ? " selected" : ""}>${esc(title(x.nome))}${x.hor ? ` (${esc(x.hor)})` : ""}</option>`).join("");
     };
     let html = `<table class="cob"><thead>
@@ -1451,6 +1505,34 @@ function renderCob(){
     const mel = MELI[d] || []; livres.forEach(x => mel.push({k: dKey(x), nome: x.nome, id: x.id || "", hor: x.hor || "", turno: x.turno || ""}));
     MELI[d] = mel; saveMeli(); cobMexeu(d); renderCob(); });
   $("#cMeli").querySelectorAll("[data-mrm]").forEach(b => b.addEventListener("click", () => setMeli(b.dataset.mrm, false)));
+
+  /* reposição de quadro — escolhe a escala antiga na seta e, ao lado, o diarista */
+  const escs = escalasAntigas();
+  const escOpts = cur => `<option value="">— escala antiga —</option>` + (cur && !escs.some(e => e[0] === cur) ? `<option value="${esc(cur)}" selected>${esc(cur)}</option>` : "")
+    + escs.map(([c, k]) => `<option value="${esc(c)}"${c === cur ? " selected" : ""}>${esc(c)}${k ? ` · ${esc(k)}` : ""}</option>`).join("");
+  const diarOpts = (cur, ant) => {
+    const hr = horMin(horDaChave(chaveDaEscala(ant)));
+    const pool = list.filter(x => !used.has(dKey(x)) && !meliSet.has(dKey(x)) && !repoSet.has(dKey(x)) || dKey(x) === cur);
+    const perto = x => hr != null && horMin(x.hor) != null && Math.abs(horMin(x.hor) - hr) <= 60;
+    pool.sort((a,b) => (perto(b) - perto(a)) || a.nome.localeCompare(b.nome, "pt-BR"));
+    return `<option value="">${pool.length ? "— escolher diarista —" : "Nenhum diarista livre"}</option>` + pool.map(x => `<option value="${esc(dKey(x))}"${dKey(x) === cur ? " selected" : ""}>${perto(x) ? "★ " : ""}${esc(title(x.nome))}${x.hor ? ` (${esc(x.hor)})` : ""}</option>`).join("");
+  };
+  const rraw = REPO[d] || [];
+  $("#cRepo").innerHTML = `<div class="mh"><span>REPOSIÇÃO DE QUADRO</span><small>${repo.filter(r => r.x).length} de ${repo.length} ${repo.length === 1 ? "vaga preenchida" : "vagas preenchidas"}</small></div>
+    <div class="mb">${rraw.length ? `<div class="hd"><span>#</span><span>Escala antiga</span><span>Diarista</span><span>Groot ID</span><span></span></div>` + rraw.map((m, i) => {
+        const x = repo[i] && repo[i].x;
+        return `<div class="ri"><span class="mono s">${i+1}</span>
+        <select class="esel" data-ri="${i}" aria-label="Escala antiga da reposição ${i+1}">${escOpts(m.ant)}</select>
+        <select class="dsel2${x ? "" : " vazio"}" data-rd="${i}" aria-label="Diarista da reposição ${i+1}">${diarOpts(x ? dKey(x) : "", m.ant)}</select>
+        <span class="s mono">${x ? (esc(x.id) || "sem ID") : "–"}${x && x.hor ? ` · ${esc(x.hor)}` : ""}</span>
+        <button class="del" data-rrm="${i}" title="Tirar esta reposição" aria-label="Tirar reposição ${i+1}">✕</button></div>`; }).join("")
+      : `<div class="note" style="padding:4px 2px">Nenhuma reposição de quadro ainda. Clique em "+ Adicionar reposição", escolha a escala antiga na seta e, ao lado, o diarista.</div>`}
+      <div class="add"><button id="cRepoAdd" class="ghost">+ Adicionar reposição</button>${hrRepoDica(rraw)}</div>
+    </div>`;
+  $("#cRepoAdd").addEventListener("click", addRepo);
+  $("#cRepo").querySelectorAll("[data-ri]").forEach(s => s.addEventListener("change", () => setRepo(+s.dataset.ri, "ant", s.value)));
+  $("#cRepo").querySelectorAll("[data-rd]").forEach(s => s.addEventListener("change", () => setRepo(+s.dataset.rd, "k", s.value)));
+  $("#cRepo").querySelectorAll("[data-rrm]").forEach(b => b.addEventListener("click", () => delRepo(+b.dataset.rrm)));
   cobSyncInfo();
 
   /* lista lateral de diaristas */
@@ -1460,24 +1542,25 @@ function renderCob(){
   $("#cDSrc").innerHTML = info ? `${info.src === "banco" ? "Do app de Diaristas" : "Lista colada"} · atualizado ${new Date(info.at).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"})}` : "Buscando os diaristas lançados nesse dia no app de Diaristas…";
   if (!list.length){ $("#cDList").innerHTML = `<div class="empty" style="padding:18px">Nenhum diarista para ${br(d)}.</div>`; return; }
   const absByKey = new Map(rows.map(r => [r.key, r]));
-  const ocup = x => used.has(dKey(x)) || meliSet.has(dKey(x));
+  const ocup = x => used.has(dKey(x)) || meliSet.has(dKey(x)) || repoSet.has(dKey(x));
   const ord = [...list].sort((a,b) => (ocup(a) - ocup(b)) || a.nome.localeCompare(b.nome, "pt-BR"));
   $("#cDList").innerHTML = ord.map(x => {
-    const ak = used.get(dKey(x)), ab = ak ? absByKey.get(ak) : null, ml = meliSet.has(dKey(x));
-    return `<div class="dl ${ab || ml ? "" : "livre"}"><span class="nm" title="${esc(x.nome)}">${esc(title(x.nome))}
-      <span class="st">Groot ID ${esc(x.id) || "–"}${x.turno ? ` · ${esc(x.turno)}` : ""}${x.hor ? ` · ${esc(x.hor)}` : ""}${ab ? ` · no lugar de ${esc(title(ab.nome))}${ab.esc ? ` (${esc(ab.esc)})` : ""}` : ml ? " · escala de diarista Meli" : ""}</span></span>
-      <span class="tag ${ab ? "ok" : ml ? "meli-t" : "livre"}">${ab ? "Cobrindo" : ml ? "Meli" : "Livre"}</span>
+    const ak = used.get(dKey(x)), ab = ak ? absByKey.get(ak) : null, ml = meliSet.has(dKey(x)), rp = repoSet.has(dKey(x)) ? (REPO[d] || []).find(m => m.k === dKey(x)) : null;
+    return `<div class="dl ${ab || ml || rp ? "" : "livre"}"><span class="nm" title="${esc(x.nome)}">${esc(title(x.nome))}
+      <span class="st">Groot ID ${esc(x.id) || "–"}${x.turno ? ` · ${esc(x.turno)}` : ""}${x.hor ? ` · ${esc(x.hor)}` : ""}${ab ? ` · no lugar de ${esc(title(ab.nome))}${ab.esc ? ` (${esc(ab.esc)})` : ""}` : ml ? " · escala de diarista Meli" : rp ? ` · reposição de quadro${rp.ant ? ` (escala ${esc(rp.ant)})` : ""}` : ""}</span></span>
+      <span class="tag ${ab ? "ok" : ml ? "meli-t" : rp ? "repo-t" : "livre"}">${ab ? "Cobrindo" : ml ? "Meli" : rp ? "Reposição" : "Livre"}</span>
       <button class="del" data-rm="${esc(dKey(x))}" title="Tirar da lista do dia" aria-label="Tirar ${esc(x.nome)} da lista">✕</button></div>`;
   }).join("");
   $("#cDList").querySelectorAll("[data-rm]").forEach(b => b.addEventListener("click", () => {
     const k = b.dataset.rm; DIAR[d].list = DIAR[d].list.filter(x => dKey(x) !== k);
     const at = ATRIB[d] || {}; Object.keys(at).forEach(a => { if (at[a] === k) delete at[a]; }); ATRIB[d] = at;
     if (MELI[d]) MELI[d] = MELI[d].filter(m => m.k !== k);
+    tiraDaRepo(d, k);
     saveDiar(); saveAtrib(); saveMeli(); cobMexeu(d); renderCob(); }));
 }
 
 function cobWppText(){
-  const d = S.cday, {rows, byKey, at, livres, meli} = cobState(d);
+  const d = S.cday, {rows, byKey, at, livres, meli, repo} = cobState(d);
   const cob = rows.filter(r => at[r.key]).length;
   let t = `*COBERTURA DE ABS – ${br(d)} (${WD[wdOf(d)]})*\n\nABS: *${rows.length}*  |  Cobertas: *${cob}*  |  Sem diarista: *${rows.length - cob}*\n`;
   let lastG = null;
@@ -1488,14 +1571,15 @@ function cobWppText(){
     t += `• ${title(r.nome)} (${r.esc || "s/ escala"}${r.ant ? ` / ${r.ant}` : ""}) → ${x ? `${title(x.nome)}${x.id ? ` (${x.id})` : ""}` : "⚠️ sem diarista"}\n`;
   });
   if (meli.length) t += `\n🟣 *Escala de diarista Meli (${meli.length})*\n` + meli.map(x => `• ${title(x.nome)}${x.id ? ` (${x.id})` : ""}${x.hor ? ` – ${x.hor}` : ""}`).join("\n") + "\n";
+  if (repo.length) t += `\n🔵 *Reposição de quadro (${repo.filter(r => r.x).length})*\n` + repo.map(r => `• Escala ${r.ant || "?"} → ${r.x ? `${title(r.x.nome)}${r.x.id ? ` (${r.x.id})` : ""}` : "⚠️ sem diarista"}`).join("\n") + "\n";
   if (livres.length) t += `\n🟡 *Diaristas livres*\n` + livres.map(x => `• ${title(x.nome)}${x.id ? ` (${x.id})` : ""}`).join("\n") + "\n";
   return t.trim();
 }
 
 async function exportCob(){
   if (typeof ExcelJS === "undefined"){ toast("Biblioteca de Excel não carregou. Verifique a internet."); return; }
-  const d = S.cday, {rows, byKey, at, livres, meli} = cobState(d);
-  if (!rows.length && !livres.length && !meli.length){ toast("Nada para exportar nesse dia"); return; }
+  const d = S.cday, {rows, byKey, at, livres, meli, repo} = cobState(d);
+  if (!rows.length && !livres.length && !meli.length && !repo.length){ toast("Nada para exportar nesse dia"); return; }
   const wb = new ExcelJS.Workbook(); const ws = wb.addWorksheet("Cobertura", {views:[{state:"frozen", ySplit:3}]});
   ws.columns = [{width:11},{width:40},{width:11},{width:14},{width:14},{width:10},{width:3},{width:38},{width:14}];
   const thin = {style:"thin", color:{argb:"FFBFC7D1"}}, box = {top:thin,left:thin,bottom:thin,right:thin};
@@ -1519,7 +1603,7 @@ async function exportCob(){
   });
   const cob = rows.filter(x => at[x.key]).length;
   r++;
-  [["TOTAL DE ABS", rows.length], ["COBERTAS", cob], ["SEM DIARISTA", rows.length - cob], ["ESCALA DIARISTA MELI", meli.length], ["DIARISTAS LIVRES", livres.length]].forEach(([l,v]) => {
+  [["TOTAL DE ABS", rows.length], ["COBERTAS", cob], ["SEM DIARISTA", rows.length - cob], ["ESCALA DIARISTA MELI", meli.length], ["REPOSIÇÃO DE QUADRO", repo.filter(x => x.x).length], ["DIARISTAS LIVRES", livres.length]].forEach(([l,v]) => {
     const a = ws.getCell(`A${r}`), b = ws.getCell(`C${r}`); ws.mergeCells(`A${r}:B${r}`);
     a.value = l; b.value = v; [a,b].forEach(c => { c.font = {bold:true}; c.border = box; c.fill = fill("FFE2EFDA"); }); b.alignment = {horizontal:"center"}; r++;
   });
@@ -1528,6 +1612,15 @@ async function exportCob(){
     mt.font = {bold:true, color:{argb:"FFFFFFFF"}}; mt.fill = fill("FF7A4FD1"); r++;
     meli.forEach(x => { const row = ws.getRow(r++); row.getCell(8).value = x.nome; row.getCell(9).value = x.id === "" ? null : x.id;
       [8,9].forEach(i => { row.getCell(i).border = box; }); row.getCell(9).alignment = {horizontal:"center"}; });
+  }
+  if (repo.length){
+    r++; ws.mergeCells(`F${r}:I${r}`); const rt = ws.getCell(`F${r}`); rt.value = "REPOSIÇÃO DE QUADRO";
+    rt.font = {bold:true, color:{argb:"FFFFFFFF"}}; rt.fill = fill("FF0E7C86"); r++;
+    const rh = ws.getRow(r++); rh.getCell(6).value = "ESC. ANTIGA"; rh.getCell(8).value = "NOME DO DIARISTA"; rh.getCell(9).value = "GROOT ID";
+    [6,8,9].forEach(i => { const c = rh.getCell(i); c.font = {bold:true}; c.border = box; c.fill = fill("FFDDF1F2"); c.alignment = {horizontal:"center"}; });
+    repo.forEach(x => { const row = ws.getRow(r++); row.getCell(6).value = x.ant || null; row.getCell(8).value = x.x ? x.x.nome : "SEM DIARISTA"; row.getCell(9).value = x.x && x.x.id !== "" ? x.x.id : null;
+      [6,8,9].forEach(i => { row.getCell(i).border = box; }); row.getCell(6).alignment = row.getCell(9).alignment = {horizontal:"center"};
+      if (!x.x){ row.getCell(8).font = {bold:true, color:{argb:"FFB7791F"}}; row.getCell(8).fill = fill("FFFFF4D6"); } });
   }
   if (livres.length){
     r++; ws.mergeCells(`H${r}:I${r}`); const lt = ws.getCell(`H${r}`); lt.value = "DIARISTAS LIVRES";
@@ -1543,7 +1636,7 @@ async function exportCob(){
 }
 
 /* ===== Cobertura → Google Sheets (Apps Script da planilha "Cobertura ABS") ===== */
-const COB_GS = "/* Cobertura ABS — cole este código na planilha (Extensões → Apps Script) e implante como App da Web.\n   Executar como: Eu · Quem pode acessar: Qualquer pessoa. */\nconst ABA_DADOS = \"_dados_cobertura\";\n\nfunction doGet(e){\n  const p = (e && e.parameter) || {};\n  if (p.acao === \"ler\" && p.dia){\n    const v = dados_().getDataRange().getValues();\n    for (let i = 1; i < v.length; i++) if (String(v[i][0]) === \"d\" + p.dia)\n      return json_({ok:true, at:Number(v[i][1]) || 0, estado:JSON.parse(v[i][2] || \"null\")});\n    return json_({ok:true, at:0, estado:null});\n  }\n  return json_({ok:true, url:SpreadsheetApp.getActive().getUrl()});\n}\n\nfunction doPost(e){\n  const lock = LockService.getScriptLock(); lock.waitLock(20000);\n  try{\n    const b = JSON.parse(e.postData.contents);\n    const ss = SpreadsheetApp.getActive();\n    const sh = dados_(), v = sh.getDataRange().getValues(), chave = \"d\" + b.dia;\n    const linha = [chave, b.at || Date.now(), JSON.stringify(b.estado || {})];\n    let row = 0; for (let i = 1; i < v.length; i++) if (String(v[i][0]) === chave){ row = i + 1; break; }\n    if (row) sh.getRange(row, 1, 1, 3).setValues([linha]); else sh.appendRow(linha);\n    const aba = b.soEstado ? null : escreveDia_(ss, b);\n    return json_({ok:true, url: ss.getUrl() + (aba ? \"#gid=\" + aba.getSheetId() : \"\")});\n  } catch(err){ return json_({ok:false, erro:String(err)}); }\n  finally{ lock.releaseLock(); }\n}\n\nfunction dados_(){\n  const ss = SpreadsheetApp.getActive();\n  let sh = ss.getSheetByName(ABA_DADOS);\n  if (!sh){ sh = ss.insertSheet(ABA_DADOS); sh.appendRow([\"dia\",\"atualizado\",\"estado\"]); sh.hideSheet(); }\n  return sh;\n}\n\nfunction escreveDia_(ss, b){\n  const nome = \"Cobertura \" + b.diaBr.replace(/\\//g, \"-\");\n  let sh = ss.getSheetByName(nome);\n  if (!sh){ sh = ss.insertSheet(nome, 0); } else { sh.clear(); sh.getRange(1,1,sh.getMaxRows(),sh.getMaxColumns()).breakApart(); }\n  const AZUL = \"#0b5a8a\", VERDE = \"#22865a\", ROXO = \"#7a4fd1\", AMARELO = \"#b7791f\";\n  sh.getRange(\"A1:I1\").merge().setValue(\"COBERTURA DE ABS – \" + b.diaBr + \" (\" + b.semana + \")\")\n    .setFontSize(14).setFontWeight(\"bold\").setFontColor(\"#1f3b57\");\n  sh.getRange(\"A2:F2\").merge().setValue(\"QUEM FALTOU\").setBackground(AZUL);\n  sh.getRange(\"H2:I2\").merge().setValue(\"DIARISTA QUE COBRE\").setBackground(VERDE);\n  sh.getRangeList([\"A2:F2\",\"H2:I2\"]).setFontColor(\"#ffffff\").setFontWeight(\"bold\").setHorizontalAlignment(\"center\");\n  sh.getRange(\"A3:I3\").setValues([[\"GROOT ID\",\"NOME\",\"TIPO\",\"ESCALA\",\"ESCALA ANTIGA\",\"HORÁRIO\",\"\",\"NOME DO DIARISTA\",\"GROOT ID DIARISTA\"]]).setFontWeight(\"bold\");\n  sh.getRange(\"A3:F3\").setBackground(\"#e2edfa\"); sh.getRange(\"H3:I3\").setBackground(\"#e2efda\");\n  let r = 4;\n  const L = b.linhas || [];\n  if (L.length){\n    const vals = L.map(x => [x[0], x[1], x[2], x[3], x[4], x[5], \"\", x[6] || \"SEM DIARISTA\", x[7] || \"\"]);\n    sh.getRange(r, 1, vals.length, 9).setValues(vals);\n    sh.getRange(r, 1, vals.length, 6).setBorder(true,true,true,true,true,true,\"#bfc7d1\",null);\n    sh.getRange(r, 8, vals.length, 2).setBorder(true,true,true,true,true,true,\"#bfc7d1\",null);\n    L.forEach((x, i) => {\n      sh.getRange(r + i, 3).setFontWeight(\"bold\").setFontColor(x[2] === \"FALTA\" ? \"#c00000\" : \"#2c74c9\");\n      if (!x[6]) sh.getRange(r + i, 8).setFontWeight(\"bold\").setFontColor(AMARELO).setBackground(\"#fff4d6\");\n    });\n    r += vals.length;\n  }\n  r++;\n  const t = b.totais || {};\n  [[\"TOTAL DE ABS\", t.abs], [\"COBERTAS\", t.cob], [\"SEM DIARISTA\", t.sem], [\"ESCALA DIARISTA MELI\", t.meli], [\"DIARISTAS LIVRES\", t.livres]].forEach(([l, n]) => {\n    sh.getRange(r, 1, 1, 2).merge().setValue(l); sh.getRange(r, 3).setValue(n || 0).setHorizontalAlignment(\"center\");\n    sh.getRange(r, 1, 1, 3).setFontWeight(\"bold\").setBackground(\"#e2efda\"); r++;\n  });\n  const bloco = (titulo, cor, lista) => {\n    if (!lista || !lista.length) return;\n    r++; sh.getRange(r, 8, 1, 2).merge().setValue(titulo).setBackground(cor).setFontColor(\"#ffffff\").setFontWeight(\"bold\"); r++;\n    sh.getRange(r, 8, lista.length, 2).setValues(lista.map(x => [x[0], x[1] || \"\"]))\n      .setBorder(true,true,true,true,true,true,\"#bfc7d1\",null);\n    r += lista.length;\n  };\n  bloco(\"ESCALA DE DIARISTA MELI (\" + (b.meli || []).length + \")\", ROXO, b.meli);\n  bloco(\"DIARISTAS LIVRES\", AMARELO, b.livres);\n  [11,40,11,14,14,10,3,38,16].forEach((w, i) => sh.setColumnWidth(i + 1, w * 7));\n  sh.getRange(\"A:A\").setHorizontalAlignment(\"center\"); sh.getRange(\"C:G\").setHorizontalAlignment(\"center\"); sh.getRange(\"I:I\").setHorizontalAlignment(\"center\");\n  sh.getRange(\"A1\").setHorizontalAlignment(\"left\");\n  sh.setFrozenRows(3);\n  ss.setActiveSheet(sh);\n  return sh;\n}\n\nfunction json_(o){ return ContentService.createTextOutput(JSON.stringify(o)).setMimeType(ContentService.MimeType.JSON); }\n";
+const COB_GS = "/* Cobertura ABS — cole este código na planilha (Extensões → Apps Script) e implante como App da Web.\n   Executar como: Eu · Quem pode acessar: Qualquer pessoa. */\nconst ABA_DADOS = \"_dados_cobertura\";\n\nfunction doGet(e){\n  const p = (e && e.parameter) || {};\n  if (p.acao === \"ler\" && p.dia){\n    const v = dados_().getDataRange().getValues();\n    for (let i = 1; i < v.length; i++) if (String(v[i][0]) === \"d\" + p.dia)\n      return json_({ok:true, at:Number(v[i][1]) || 0, estado:JSON.parse(v[i][2] || \"null\")});\n    return json_({ok:true, at:0, estado:null});\n  }\n  return json_({ok:true, url:SpreadsheetApp.getActive().getUrl()});\n}\n\nfunction doPost(e){\n  const lock = LockService.getScriptLock(); lock.waitLock(20000);\n  try{\n    const b = JSON.parse(e.postData.contents);\n    const ss = SpreadsheetApp.getActive();\n    const sh = dados_(), v = sh.getDataRange().getValues(), chave = \"d\" + b.dia;\n    const linha = [chave, b.at || Date.now(), JSON.stringify(b.estado || {})];\n    let row = 0; for (let i = 1; i < v.length; i++) if (String(v[i][0]) === chave){ row = i + 1; break; }\n    if (row) sh.getRange(row, 1, 1, 3).setValues([linha]); else sh.appendRow(linha);\n    const aba = b.soEstado ? null : escreveDia_(ss, b);\n    return json_({ok:true, url: ss.getUrl() + (aba ? \"#gid=\" + aba.getSheetId() : \"\")});\n  } catch(err){ return json_({ok:false, erro:String(err)}); }\n  finally{ lock.releaseLock(); }\n}\n\nfunction dados_(){\n  const ss = SpreadsheetApp.getActive();\n  let sh = ss.getSheetByName(ABA_DADOS);\n  if (!sh){ sh = ss.insertSheet(ABA_DADOS); sh.appendRow([\"dia\",\"atualizado\",\"estado\"]); sh.hideSheet(); }\n  return sh;\n}\n\nfunction escreveDia_(ss, b){\n  const nome = \"Cobertura \" + b.diaBr.replace(/\\//g, \"-\");\n  let sh = ss.getSheetByName(nome);\n  if (!sh){ sh = ss.insertSheet(nome, 0); } else { sh.clear(); sh.getRange(1,1,sh.getMaxRows(),sh.getMaxColumns()).breakApart(); }\n  const AZUL = \"#0b5a8a\", VERDE = \"#22865a\", ROXO = \"#7a4fd1\", AMARELO = \"#b7791f\";\n  sh.getRange(\"A1:I1\").merge().setValue(\"COBERTURA DE ABS – \" + b.diaBr + \" (\" + b.semana + \")\")\n    .setFontSize(14).setFontWeight(\"bold\").setFontColor(\"#1f3b57\");\n  sh.getRange(\"A2:F2\").merge().setValue(\"QUEM FALTOU\").setBackground(AZUL);\n  sh.getRange(\"H2:I2\").merge().setValue(\"DIARISTA QUE COBRE\").setBackground(VERDE);\n  sh.getRangeList([\"A2:F2\",\"H2:I2\"]).setFontColor(\"#ffffff\").setFontWeight(\"bold\").setHorizontalAlignment(\"center\");\n  sh.getRange(\"A3:I3\").setValues([[\"GROOT ID\",\"NOME\",\"TIPO\",\"ESCALA\",\"ESCALA ANTIGA\",\"HORÁRIO\",\"\",\"NOME DO DIARISTA\",\"GROOT ID DIARISTA\"]]).setFontWeight(\"bold\");\n  sh.getRange(\"A3:F3\").setBackground(\"#e2edfa\"); sh.getRange(\"H3:I3\").setBackground(\"#e2efda\");\n  let r = 4;\n  const L = b.linhas || [];\n  if (L.length){\n    const vals = L.map(x => [x[0], x[1], x[2], x[3], x[4], x[5], \"\", x[6] || \"SEM DIARISTA\", x[7] || \"\"]);\n    sh.getRange(r, 1, vals.length, 9).setValues(vals);\n    sh.getRange(r, 1, vals.length, 6).setBorder(true,true,true,true,true,true,\"#bfc7d1\",null);\n    sh.getRange(r, 8, vals.length, 2).setBorder(true,true,true,true,true,true,\"#bfc7d1\",null);\n    L.forEach((x, i) => {\n      sh.getRange(r + i, 3).setFontWeight(\"bold\").setFontColor(x[2] === \"FALTA\" ? \"#c00000\" : \"#2c74c9\");\n      if (!x[6]) sh.getRange(r + i, 8).setFontWeight(\"bold\").setFontColor(AMARELO).setBackground(\"#fff4d6\");\n    });\n    r += vals.length;\n  }\n  r++;\n  const t = b.totais || {};\n  [[\"TOTAL DE ABS\", t.abs], [\"COBERTAS\", t.cob], [\"SEM DIARISTA\", t.sem], [\"ESCALA DIARISTA MELI\", t.meli], [\"REPOSIÇÃO DE QUADRO\", t.repo], [\"DIARISTAS LIVRES\", t.livres]].forEach(([l, n]) => {\n    sh.getRange(r, 1, 1, 2).merge().setValue(l); sh.getRange(r, 3).setValue(n || 0).setHorizontalAlignment(\"center\");\n    sh.getRange(r, 1, 1, 3).setFontWeight(\"bold\").setBackground(\"#e2efda\"); r++;\n  });\n  const bloco = (titulo, cor, lista) => {\n    if (!lista || !lista.length) return;\n    r++; sh.getRange(r, 8, 1, 2).merge().setValue(titulo).setBackground(cor).setFontColor(\"#ffffff\").setFontWeight(\"bold\"); r++;\n    sh.getRange(r, 8, lista.length, 2).setValues(lista.map(x => [x[0], x[1] || \"\"]))\n      .setBorder(true,true,true,true,true,true,\"#bfc7d1\",null);\n    r += lista.length;\n  };\n  bloco(\"ESCALA DE DIARISTA MELI (\" + (b.meli || []).length + \")\", ROXO, b.meli);\n  const R = b.repo || [];\n  if (R.length){\n    r++; sh.getRange(r, 6, 1, 4).merge().setValue(\"REPOSIÇÃO DE QUADRO (\" + R.length + \")\").setBackground(\"#0e7c86\").setFontColor(\"#ffffff\").setFontWeight(\"bold\"); r++;\n    sh.getRange(r, 6, 1, 4).setValues([[\"ESC. ANTIGA\", \"\", \"NOME DO DIARISTA\", \"GROOT ID\"]]).setFontWeight(\"bold\").setBackground(\"#ddf1f2\"); r++;\n    sh.getRange(r, 6, R.length, 4).setValues(R.map(x => [x[0], \"\", x[1] || \"SEM DIARISTA\", x[2] || \"\"]));\n    sh.getRange(r, 6, R.length, 1).setBorder(true,true,true,true,true,true,\"#bfc7d1\",null);\n    sh.getRange(r, 8, R.length, 2).setBorder(true,true,true,true,true,true,\"#bfc7d1\",null);\n    r += R.length;\n  }\n  bloco(\"DIARISTAS LIVRES\", AMARELO, b.livres);\n  [11,40,11,14,14,10,3,38,16].forEach((w, i) => sh.setColumnWidth(i + 1, w * 7));\n  sh.getRange(\"A:A\").setHorizontalAlignment(\"center\"); sh.getRange(\"C:G\").setHorizontalAlignment(\"center\"); sh.getRange(\"I:I\").setHorizontalAlignment(\"center\");\n  sh.getRange(\"A1\").setHorizontalAlignment(\"left\");\n  sh.setFrozenRows(3);\n  ss.setActiveSheet(sh);\n  return sh;\n}\n\nfunction json_(o){ return ContentService.createTextOutput(JSON.stringify(o)).setMimeType(ContentService.MimeType.JSON); }\n";
 const cobSheetUrl = () => (store.get("cobsheet", null) || {}).url || "";
 let COB_SYNC = {st:"", at:0, err:""}, _cobT = null, _cobDia = null;
 function cobSyncInfo(){
@@ -1564,8 +1657,9 @@ function cobPayload(d){
     linhas: st.rows.map(r => { const x = st.at[r.key] ? st.byKey.get(st.at[r.key]) : null; return [r.id === "" ? "" : r.id, r.nome, r.tipo, r.esc || "", r.ant || "", r.hor || "", x ? x.nome : "", x ? (x.id || "") : ""]; }),
     meli: st.meli.map(x => [x.nome, x.id || "", x.hor || ""]),
     livres: st.livres.map(x => [x.nome, x.id || "", x.hor || ""]),
-    totais: {abs: st.rows.length, cob, sem: st.rows.length - cob, meli: st.meli.length, livres: st.livres.length},
-    estado: {atrib: ATRIB[d] || {}, atribm: ATRIBM[d] || {}, meli: MELI[d] || [], manuais: ((DIAR[d]?.list) || []).filter(x => x.manual)}
+    repo: st.repo.map(r => [r.ant || "", r.x ? r.x.nome : "", r.x ? (r.x.id || "") : ""]),
+    totais: {abs: st.rows.length, cob, sem: st.rows.length - cob, meli: st.meli.length, repo: st.repo.filter(r => r.x).length, livres: st.livres.length},
+    estado: {atrib: ATRIB[d] || {}, atribm: ATRIBM[d] || {}, meli: MELI[d] || [], repo: REPO[d] || [], manuais: ((DIAR[d]?.list) || []).filter(x => x.manual)}
   };
 }
 function cobSyncLater(d){ if (!cobSheetUrl()) return; clearTimeout(_cobT); _cobDia = d; _cobT = setTimeout(() => { _cobT = null; cobPush(d); }, 2500); }
@@ -1590,6 +1684,7 @@ async function cobPull(d){
     if (_cobT && _cobDia === d) return;   // tem mudança local esperando pra subir
     const e = j.estado;
     ATRIB[d] = e.atrib || {}; ATRIBM[d] = e.atribm || {}; MELI[d] = e.meli || [];
+    if (e.repo) { REPO[d] = e.repo; saveRepo(); }
     if (!DIAR[d]) DIAR[d] = {list: [], src: "lista", at: Date.now()};
     const man = semDuplicar(e.manuais || [], DIAR[d].list);
     if (man.length){ DIAR[d].list.push(...man); DIAR[d].list.sort((a,b) => a.nome.localeCompare(b.nome, "pt-BR")); saveDiar(); }
