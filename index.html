@@ -1778,6 +1778,16 @@ async function cobParaExport(src, a, b){
   });
 }
 
+/* dados da aba Reposição de Quadro da fatura: escala antiga + diarista de cada dia do período */
+function repoParaExport(a, b){
+  return Object.keys(REPO).filter(d => d >= a && d <= b && (REPO[d] || []).length).sort().map(d => {
+    const st = cobState(d);
+    return {d, rows: st.repo.map((r, i) => { const m = (REPO[d] || [])[i] || {}; const x = r.x;
+      const ch = chaveDaEscala(r.ant);
+      return {ant: r.ant || "", esc: ch || "", hor: horDaChave(ch), nome: x ? x.nome : "", id: x ? (x.id || "") : "", dhor: x ? (x.hor || "") : (m.hor || "")}; })};
+  });
+}
+
 /* ===== Abas / render ===== */
 function setTab(t){ S.tab=t; store.set("tab",t); document.querySelectorAll(".tabs button").forEach(b=>b.setAttribute("aria-selected", b.dataset.tab===t)); ["lanc","cob","dia","ciclo","pess","reg"].forEach(x=>$("#tab-"+x).hidden = x!==t); render(); if(t==="cob"){ loadDiarDB(true); loadEscalas(false); cobPull(S.cday); } }
 function renderSource(){
@@ -1828,6 +1838,10 @@ async function exportXlsx(){
   });
   const ws5=XLSX.utils.aoa_to_sheet(cb); ws5["!cols"]=[{wch:11},{wch:5},{wch:10},{wch:40},{wch:10},{wch:36},{wch:13},{wch:8},{wch:2},{wch:40},{wch:17}]; ws5["!autofilter"]={ref:`A1:K${cb.length}`};
   XLSX.utils.book_append_sheet(wb,ws5,"Substituições");
+  const rq = [["DATA","DIA","ESCALA ANTIGA","ESCALA","HORÁRIO DA ESCALA","","NOME DO DIARISTA","GROOT ID DIARISTA","HORÁRIO DIARISTA"]];
+  repoParaExport(a, b).forEach(dia => dia.rows.forEach(x => rq.push([br(dia.d), WD3[wdOf(dia.d)], /^\d+$/.test(x.ant) ? Number(x.ant) : x.ant, x.esc, x.hor, "", x.nome || "SEM DIARISTA", x.id, x.dhor])));
+  const ws6=XLSX.utils.aoa_to_sheet(rq); ws6["!cols"]=[{wch:11},{wch:5},{wch:14},{wch:10},{wch:18},{wch:2},{wch:40},{wch:17},{wch:16}]; ws6["!autofilter"]={ref:`A1:I${rq.length}`};
+  XLSX.utils.book_append_sheet(wb,ws6,"Reposição de Quadro");
   XLSX.writeFile(wb,`Ausencias_${fileStamp()}.xlsx`); toast("Excel gerado");
 }
 /* Gera a planilha da fatura no mesmo visual da planilha original + aba "Resumo por dia" + gráfico nativo do Excel.
@@ -1931,6 +1945,47 @@ async function buildFaturaXlsx(ExcelJS, JSZip, rows, opts){
       a.value = l; b.value = v; [a,b].forEach(c => { c.font = {bold:true}; c.border = lineBox; c.fill = fl("FFE2EFDA"); }); b.alignment = {horizontal:"left"}; rr++;
     });
     sw.autoFilter = {from:"A2", to:`K${Math.max(3, rr-6)}`};
+  }
+
+  /* ---------- REPOSIÇÃO DE QUADRO — escala antiga x diarista que repôs ---------- */
+  const temRepo = !!opts.repo;
+  if (temRepo){
+    const qw = wb.addWorksheet("REPOSIÇÃO DE QUADRO", {views:[{state:"frozen", ySplit:2}]});
+    qw.columns = [{width:12},{width:7},{width:15},{width:11},{width:12},{width:3},{width:40},{width:18},{width:12}];
+    const fl = c => ({type:"pattern", pattern:"solid", fgColor:{argb:c}});
+    qw.mergeCells("A1:E1"); qw.mergeCells("G1:I1");
+    const q1 = qw.getCell("A1"), q2 = qw.getCell("G1");
+    q1.value = "ESCALA QUE FOI REPOSTA"; q2.value = "DIARISTA DA REPOSIÇÃO";
+    [[q1,"FF0E7C86"],[q2,"FF22865A"]].forEach(([c,col]) => { c.fill = fl(col); c.font = {bold:true, color:{argb:"FFFFFFFF"}, size:12}; c.alignment = {horizontal:"center", vertical:"middle"}; });
+    qw.getRow(1).height = 22;
+    const qh = qw.getRow(2); qh.values = ["DATA","DIA","ESCALA ANTIGA","ESCALA","HORÁRIO","","NOME DO DIARISTA","GROOT ID DIARISTA","HORÁRIO"];
+    qh.eachCell((c,i) => { if (i === 6) return; c.font = {bold:true}; c.fill = fl(i < 6 ? "FFDDF1F2" : "FFE2EFDA"); c.border = box; c.alignment = {horizontal:"center"}; });
+    let qr = 3, totV = 0, totP = 0;
+    if (!opts.repo.length){
+      qw.mergeCells(`A${qr}:I${qr}`); const e = qw.getCell(`A${qr}`); e.value = "Nenhuma reposição de quadro lançada no período."; e.font = {italic:true, color:{argb:"FF8A94A0"}}; qr++;
+    }
+    opts.repo.forEach(dia => {
+      const n = dia.rows.filter(x => x.nome).length; totV += dia.rows.length; totP += n;
+      qw.mergeCells(`A${qr}:E${qr}`); qw.mergeCells(`G${qr}:I${qr}`);
+      const g1 = qw.getCell(`A${qr}`), g2 = qw.getCell(`G${qr}`);
+      g1.value = `${brS(dia.d)}/${dia.d.slice(0,4)} · ${WDF[toDate(dia.d).getUTCDay()]} · ${dia.rows.length} ${dia.rows.length === 1 ? "vaga" : "vagas"}`;
+      g2.value = `${n} de ${dia.rows.length} preenchidas`;
+      g1.fill = fl("FFD5ECEE"); g2.fill = fl("FFCFE6D8"); [g1,g2].forEach(c => { c.font = {bold:true, color:{argb:"FF1F3B57"}}; });
+      qr++;
+      dia.rows.forEach(x => {
+        const row = qw.getRow(qr++);
+        row.values = [toDate(dia.d), WD3[toDate(dia.d).getUTCDay()], /^\d+$/.test(x.ant) ? Number(x.ant) : (x.ant || ""), x.esc || "", x.hor || "", null, x.nome || "SEM DIARISTA", x.id !== "" ? x.id : null, x.dhor || ""];
+        row.getCell(1).numFmt = "dd/mm/yyyy";
+        row.eachCell({includeEmpty:true}, (c,i) => { if (i === 6 || i > 9) return; c.border = box; if (i !== 7) c.alignment = {horizontal:"center"}; });
+        row.getCell(3).font = {bold:true};
+        if (!x.nome){ row.getCell(7).font = {bold:true, color:{argb:"FFB7791F"}}; row.getCell(7).fill = fl("FFFFF4D6"); }
+      });
+    });
+    qr++;
+    [["VAGAS DE REPOSIÇÃO", totV], ["PREENCHIDAS", totP], ["SEM DIARISTA", totV - totP]].forEach(([l,v]) => {
+      qw.mergeCells(`A${qr}:C${qr}`); const a = qw.getCell(`A${qr}`), b = qw.getCell(`D${qr}`);
+      a.value = l; b.value = v; [a,b].forEach(c => { c.font = {bold:true}; c.border = box; c.fill = fl("FFDDF1F2"); }); b.alignment = {horizontal:"center"}; qr++;
+    });
   }
 
   /* ---------- Resumo por dia ---------- */
@@ -2123,8 +2178,9 @@ ${rkSer(1,"ATESTADOS","E","2C74C9",top.map(p=>p.a))}
   zip.file("xl/charts/chart4.xml", rankXml);
   zip.file("xl/drawings/drawing3.xml", drawing(anchor("rId1",2,"Ranking ABS",8,0,20,Math.max(18, topN*2+4))));
   zip.file("xl/drawings/_rels/drawing3.xml.rels", rels([["rId1",T_CHART,"../charts/chart4.xml"]]));
-  const temDia = !!(opts.cob && opts.cob.length);   // com a aba DIARISTAS em 2º, Resumo e Ranking andam uma posição
-  for (const [i,dr] of [[1,"drawing1"],[temDia?3:2,"drawing2"],[temDia?4:3,"drawing3"]]){
+  const temDia = !!(opts.cob && opts.cob.length);   // abas DIARISTAS e REPOSIÇÃO DE QUADRO vêm antes: Resumo e Ranking andam
+  const off = (temDia ? 1 : 0) + (opts.repo ? 1 : 0);
+  for (const [i,dr] of [[1,"drawing1"],[2+off,"drawing2"],[3+off,"drawing3"]]){
     const p=`xl/worksheets/sheet${i}.xml`; let x=await zip.file(p).async("string");
     if(!/xmlns:r=/.test(x)) x=x.replace("<worksheet ",'<worksheet xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" ');
     const tag=`<drawing r:id="rIdChartDr"/>`;
@@ -2159,7 +2215,8 @@ async function exportOrig(fa,fb){
   toast("Gerando planilha…");
   try{
     const cob = await cobParaExport(src, ra, rb);
-    const buf = await buildFaturaXlsx(ExcelJS, JSZip, src, {title:titulo, cob, chartTitle: unico ? `Ausências em ${br(fa)}` : `Faltas e Atestados por dia · ${brShort(ra)} a ${br(rb)}`});
+    const repo = repoParaExport(ra, rb);
+    const buf = await buildFaturaXlsx(ExcelJS, JSZip, src, {title:titulo, cob, repo, chartTitle: unico ? `Ausências em ${br(fa)}` : `Faltas e Atestados por dia · ${brShort(ra)} a ${br(rb)}`});
     const nome = unico ? `FALTA ${br(fa).replace(/\//g,".")}.xlsx` : `FALTA FATURA ${br(rb).replace(/\//g,".")}.xlsx`;
     const url = URL.createObjectURL(new Blob([buf],{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}));
     const a = document.createElement("a"); a.href=url; a.download=nome; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url),4000);
