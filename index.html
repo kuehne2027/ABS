@@ -63,6 +63,13 @@ select,input[type=date],input[type=text],input[type=url],input[type=search]{font
 .tabs button{border:0;border-bottom:3px solid transparent;border-radius:0;background:transparent;padding:10px 14px;color:var(--muted);font-family:var(--f-display);font-size:18px;letter-spacing:.02em}
 .tabs button[aria-selected=true]{color:var(--ink);border-bottom-color:var(--accent)}
 main{padding-block:18px 40px}
+.calc-in{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-top:6px}
+.calc-in input[type=number]{font:inherit;font-family:var(--f-display);font-weight:700;font-size:26px;text-align:center;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--ink);min-width:0;width:100%}
+.kpi.calc-meli .v{color:var(--ok)} .kpi.calc-blue .v{color:var(--accent)}
+.calc-line{display:flex;justify-content:space-between;gap:12px;padding:9px 0;border-bottom:1px solid var(--line);font-size:14px}
+.calc-line b{font-size:17px;white-space:nowrap;font-variant-numeric:tabular-nums}
+.calc-rep{background:var(--soft);border-radius:10px;padding:12px 14px;font-size:13px;line-height:1.6;white-space:pre-line;margin-top:12px}
+.calc-warn{background:var(--falta-soft);border:1px solid var(--line);border-left:4px solid var(--warn);border-radius:10px;padding:10px 14px;font-size:13.5px}
 .grid{display:grid;gap:14px}
 .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
 .kpis .kpi:last-child:nth-child(odd){grid-column:1/-1}
@@ -258,6 +265,7 @@ select.dsel.vazio{border-color:var(--warn);color:var(--warn);font-weight:600}
   <nav class="tabs" role="tablist">
     <button role="tab" data-tab="lanc" aria-selected="true">Lançar ABS</button>
     <button role="tab" data-tab="cob" aria-selected="false">Cobertura</button>
+    <button role="tab" data-tab="calc" aria-selected="false">Calculadora 2,5%</button>
     <button role="tab" data-tab="dia" aria-selected="false">Dia</button>
     <button role="tab" data-tab="ciclo" aria-selected="false">Ciclo</button>
     <button role="tab" data-tab="pess" aria-selected="false">Colaboradores</button>
@@ -357,6 +365,48 @@ select.dsel.vazio{border-color:var(--warn);color:var(--warn);font-weight:600}
         </div>
         <div id="cDList"></div>
       </div>
+    </div>
+  </section>
+
+  <!-- CALCULADORA 2,5% -->
+  <section id="tab-calc" class="grid" hidden>
+    <div class="card">
+      <h2>Calculadora ABS • MELI</h2>
+      <p class="sub">Calcule a faixa de 2,5% do quadro e quantos diaristas entram na cobertura.</p>
+      <div class="calc-in">
+        <div class="field"><label for="calcData">Dia</label><input type="date" id="calcData"></div>
+        <div class="field"><label for="calcQuadro">Quadro do dia</label><input type="number" id="calcQuadro" min="0" step="1" inputmode="numeric"></div>
+        <div class="field"><label for="calcAbs">Faltas (ABS)</label><input type="number" id="calcAbs" min="0" step="1" inputmode="numeric"></div>
+        <div class="field"><label for="calcDiar">Diaristas</label><input type="number" id="calcDiar" min="0" step="1" inputmode="numeric"></div>
+        <div class="field"><label for="calcArr">Arredondamento</label>
+          <select id="calcArr"><option value="cima">Para cima (padrão)</option><option value="baixo">Para baixo</option><option value="proximo">Mais próximo</option></select></div>
+      </div>
+      <div class="row" style="gap:8px;margin-top:10px;flex-wrap:wrap">
+        <button type="button" id="calcPuxar">Puxar ABS lançados no dia</button>
+        <span class="note" id="calcPuxarInfo" style="margin:0"></span>
+      </div>
+      <p class="note">A quantidade exata é <b>quadro × 0,025</b>; o arredondamento define quantas pessoas inteiras entram na cota.</p>
+    </div>
+    <div class="kpis">
+      <div class="kpi calc-meli"><div class="l">Cota MELI • 2,5% do quadro</div><div class="v" id="calcCota">0</div><div class="s">Limite de pessoas dentro dos 2,5%</div></div>
+      <div class="kpi calc-blue"><div class="l">Diaristas na faixa MELI</div><div class="v" id="calcMeli">0</div><div class="s">Considerando apenas cobertura de ABS</div></div>
+      <div class="kpi falta"><div class="l">ABS além dos 2,5%</div><div class="v" id="calcAcima">0</div><div class="s">Faltas acima da faixa de 2,5%</div></div>
+      <div class="kpi"><div class="l">Diaristas restantes</div><div class="v" id="calcRest">0</div><div class="s">Não atribuídos à faixa MELI</div></div>
+    </div>
+    <div id="calcAviso" class="calc-warn" hidden></div>
+    <div class="card">
+      <h2>Resumo do cálculo</h2>
+      <div class="calc-line"><span>2,5% exatos do quadro</span><b id="calcExato">0</b></div>
+      <div class="calc-line"><span>ABS dentro da cota MELI</span><b id="calcDentro">0</b></div>
+      <div class="calc-line"><span>ABS acima da cota MELI</span><b id="calcFora">0</b></div>
+      <div class="calc-line"><span>ABS cobertos pelos diaristas</span><b id="calcCob">0</b></div>
+      <div class="calc-line"><span>ABS ainda sem cobertura</span><b id="calcDesc">0</b></div>
+      <div class="calc-rep" id="calcRel" aria-live="polite"></div>
+      <div class="row" style="gap:8px;margin-top:12px;flex-wrap:wrap">
+        <button type="button" class="primary" id="calcCopiar">Copiar resumo</button>
+        <button type="button" id="calcLimpar">Limpar dados</button>
+      </div>
+      <p class="note"><b>Importante:</b> é uma simulação da regra de cobertura dos primeiros 2,5% de ABS pelo MELI, não uma confirmação de quem será faturado. Diaristas que excedem as faltas não são automaticamente considerados cobertura de ABS.</p>
     </div>
   </section>
 
@@ -1860,8 +1910,47 @@ function repoParaExport(a, b){
   });
 }
 
+
+/* ===== Calculadora 2,5% (cota MELI) ===== */
+let CALC_MSG = "";
+const CALC = Object.assign({quadro:131, abs:8, diar:16, arr:"cima"}, store.get("calc", {}) || {});
+function calcInt(v){ const n = Number(v); return Number.isFinite(n) ? Math.max(0, Math.trunc(n)) : 0; }
+function calcAbsDoDia(d){ return DATA.filter(r => r.d === d).length; }
+function renderCalc(){
+  if (!$("#calcData").value) $("#calcData").value = todayKey();
+  const fill = (id, v) => { const el = $(id); if (document.activeElement !== el && String(el.value) !== String(v)) el.value = v; };
+  fill("#calcQuadro", CALC.quadro); fill("#calcAbs", CALC.abs); fill("#calcDiar", CALC.diar); $("#calcArr").value = CALC.arr;
+  const quadro = calcInt(CALC.quadro), abs = calcInt(CALC.abs), diaristas = calcInt(CALC.diar), exato = quadro * 0.025;
+  const cota = CALC.arr === "baixo" ? Math.floor(exato) : CALC.arr === "proximo" ? Math.round(exato) : Math.ceil(exato);
+  const dentro = Math.min(abs, cota), fora = Math.max(0, abs - cota);
+  const cobertos = Math.min(abs, diaristas), meli = Math.min(dentro, diaristas), rest = diaristas - meli, desc = Math.max(0, abs - diaristas);
+  const f3 = n => n.toLocaleString("pt-BR", {maximumFractionDigits:3});
+  [["#calcCota",cota],["#calcMeli",meli],["#calcAcima",fora],["#calcRest",rest],["#calcExato",f3(exato)+" pessoas"],["#calcDentro",dentro],["#calcFora",fora],["#calcCob",cobertos],["#calcDesc",desc]].forEach(([id,v]) => $(id).textContent = v);
+  const av = [];
+  if (abs > quadro) av.push("O número de ABS é maior que o quadro informado. Confira os dados.");
+  if (diaristas > abs) av.push("Há mais diaristas do que ABS. Os diaristas excedentes não entram automaticamente na cobertura das faltas.");
+  $("#calcAviso").hidden = !av.length; $("#calcAviso").textContent = av.join(" ");
+  const d = $("#calcData").value;
+  CALC_MSG = `RESUMO ABS • MELI${d ? " — " + br(d) : ""}\nQuadro: ${quadro} | ABS: ${abs} | Diaristas: ${diaristas}\n2,5% exatos: ${f3(exato)} | Cota arredondada: ${cota}\nABS dentro dos 2,5%: ${dentro}\nDiaristas na faixa MELI: ${meli}\nABS acima dos 2,5%: ${fora}\nABS cobertos no total: ${cobertos}\nABS sem cobertura: ${desc}\nDiaristas restantes (fora da faixa MELI): ${rest}`;
+  $("#calcRel").textContent = CALC_MSG;
+  const n = d ? calcAbsDoDia(d) : 0;
+  $("#calcPuxarInfo").textContent = d ? `${n} ABS lançado(s) em ${br(d)}` : "";
+}
+function calcSave(){ store.set("calc", CALC); renderCalc(); }
+[["#calcQuadro","quadro"],["#calcAbs","abs"],["#calcDiar","diar"]].forEach(([id,k]) => $(id).addEventListener("input", e => { CALC[k] = e.target.value; calcSave(); }));
+$("#calcArr").addEventListener("change", e => { CALC.arr = e.target.value; calcSave(); });
+$("#calcData").addEventListener("change", renderCalc);
+$("#calcPuxar").addEventListener("click", () => { const d = $("#calcData").value; if (!d) return; CALC.abs = calcAbsDoDia(d); $("#calcAbs").value = CALC.abs; calcSave(); });
+$("#calcLimpar").addEventListener("click", () => { CALC.quadro = ""; CALC.abs = ""; CALC.diar = ""; ["#calcQuadro","#calcAbs","#calcDiar"].forEach(id => $(id).value = ""); calcSave(); $("#calcQuadro").focus(); });
+$("#calcCopiar").addEventListener("click", async () => {
+  const b = $("#calcCopiar");
+  try { await navigator.clipboard.writeText(CALC_MSG); }
+  catch { const t = document.createElement("textarea"); t.value = CALC_MSG; document.body.appendChild(t); t.select(); document.execCommand("copy"); t.remove(); }
+  b.textContent = "Resumo copiado!"; setTimeout(() => b.textContent = "Copiar resumo", 1800);
+});
+
 /* ===== Abas / render ===== */
-function setTab(t){ S.tab=t; store.set("tab",t); document.querySelectorAll(".tabs button").forEach(b=>b.setAttribute("aria-selected", b.dataset.tab===t)); ["lanc","cob","dia","ciclo","pess","reg"].forEach(x=>$("#tab-"+x).hidden = x!==t); render(); if(t==="cob"){ loadDiarDB(true); loadEscalas(false); cobPull(S.cday); } }
+function setTab(t){ S.tab=t; store.set("tab",t); document.querySelectorAll(".tabs button").forEach(b=>b.setAttribute("aria-selected", b.dataset.tab===t)); ["lanc","cob","calc","dia","ciclo","pess","reg"].forEach(x=>$("#tab-"+x).hidden = x!==t); render(); if(t==="cob"){ loadDiarDB(true); loadEscalas(false); cobPull(S.cday); } }
 function renderSource(){
   const dot=$("#srcDot"), tx=$("#srcText");
   const ds=DATA.map(r=>r.d).sort();
@@ -1876,6 +1965,7 @@ function render(){
   $("#customWrap").hidden = S.cycle!=="custom";
   if (S.tab==="lanc"){ renderLanc(); return; }
   if (S.tab==="cob"){ renderCob(); return; }
+  if (S.tab==="calc"){ renderCalc(); return; }
   if (S.tab==="dia") renderDia(); else if (S.tab==="ciclo") renderCiclo(); else if (S.tab==="pess") renderPess(); else renderReg();
 }
 
