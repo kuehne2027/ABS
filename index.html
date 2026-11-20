@@ -186,6 +186,10 @@ select.dsel.vazio{border-color:var(--warn);color:var(--warn);font-weight:600}
 .repo .add{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:4px}
 .repo .hd{display:grid;grid-template-columns:28px minmax(150px,220px) 1fr auto auto;gap:8px;padding:0 8px;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
 @media (max-width:640px){.repo .ri{grid-template-columns:24px 1fr auto}.repo .ri .dsel2{grid-column:2 / 3}.repo .ri .s{grid-column:2 / 4}.repo .hd{display:none}}
+.repo .fixo{margin-top:6px;padding:10px;border:1px dashed color-mix(in srgb,var(--repo) 50%,transparent);border-radius:10px;display:grid;gap:6px}
+.repo .fixo .fh{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;color:var(--repo)}
+.repo .fixo .fr{display:grid;grid-template-columns:minmax(150px,240px) auto auto;justify-content:start;gap:8px;align-items:center}
+.repo .fixo input[type=number]{width:64px}
 .tag.repo-t{background:color-mix(in srgb,var(--repo) 16%,transparent);color:var(--repo)}
 :root{--meli:#7a4fd1;--repo:#0e7c86}
 .dl{display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--soft)}
@@ -1168,6 +1172,13 @@ function saveAtrib(){
 }
 const saveMeli = () => storeSafe("meli", MELI);
 const saveRepo = () => storeSafe("repo", REPO);
+/* quadro fixo da reposição: entra sozinho todo dia (a partir de "desde") e pode ser mudado na própria aba */
+const REPOFIXO_PADRAO = [{ant:"2452", qtd:1}, {ant:"2432", qtd:3}, {ant:"2453", qtd:1}, {ant:"2426", qtd:1}];
+let REPOFIXO = store.get("repofixo", null);
+if (!REPOFIXO){ REPOFIXO = {on:true, desde:todayKey(), lista:REPOFIXO_PADRAO.map(x => ({...x})), feito:{}}; storeSafe("repofixo", REPOFIXO); }
+REPOFIXO.feito ||= {};
+const saveRepoFixo = () => storeSafe("repofixo", REPOFIXO);
+const COB_PULLED = new Set();   // dias em que a planilha já foi consultada (só aplica o quadro fixo depois, pra não atropelar outro aparelho)
 /* marca o dia como alterado e manda pra planilha (se ligada) */
 function cobMexeu(d){ COBAT[d] = Date.now(); storeSafe("cobat", COBAT); cobSyncLater(d); }
 /* mesmo banco do app Controle de Diaristas (kuehne-diaristas) — leitura pública, sem CPF */
@@ -1435,15 +1446,56 @@ function setRepo(i, campo, v){
       if ((MELI[d]||[]).some(m => m.k === v)){ MELI[d] = MELI[d].filter(m => m.k !== v); saveMeli(); }
       Object.assign(r[i], {k: v, nome: x.nome, id: x.id || "", hor: x.hor || "", turno: x.turno || ""});
     } else Object.assign(r[i], {k:"", nome:"", id:"", hor:"", turno:""});
+    r[i].auto = false;   // mexeu na mão: o app não troca mais esse diarista sozinho
   }
   saveRepo(); cobMexeu(d); renderCob();
 }
-function delRepo(i){ const d = S.cday, r = REPO[d]; if (!r) return; r.splice(i, 1); if (!r.length) delete REPO[d]; saveRepo(); cobMexeu(d); renderCob(); }
+function delRepo(i){ const d = S.cday, r = REPO[d]; if (!r) return; r.splice(i, 1); saveRepo(); cobMexeu(d); renderCob(); }
 
+/* monta as vagas do dia a partir do quadro fixo (uma vez por dia) */
+function vagasDoFixo(){ const v = []; (REPOFIXO.lista || []).forEach(f => { for (let n = 0; n < (+f.qtd || 0); n++) v.push({ant:String(f.ant), k:"", nome:"", id:"", hor:"", turno:"", auto:true}); }); return v; }
+function aplicaQuadroFixo(d){
+  if (!REPOFIXO.on || d < REPOFIXO.desde || REPOFIXO.feito[d] || !COB_PULLED.has(d)) return false;
+  REPOFIXO.feito[d] = 1; saveRepoFixo();
+  if ((REPO[d] || []).length) return false;   // o dia já tem reposição (feita aqui ou em outro aparelho): não mexe
+  REPO[d] = vagasDoFixo(); saveRepo(); return true;
+}
+/* preenche as vagas automáticas vazias com os primeiros diaristas livres (★ horário perto da escala primeiro) */
+function preencheRepoAuto(d, st){
+  const r = REPO[d] || []; if (!r.some(m => m.auto && !m.k)) return false;
+  const livres = [...st.livres]; let mudou = false;
+  r.forEach(m => {
+    if (!m.auto || m.k || !livres.length) return;
+    const hr = horMin(horDaChave(chaveDaEscala(m.ant)));
+    const perto = x => hr != null && horMin(x.hor) != null && Math.abs(horMin(x.hor) - hr) <= 60;
+    let i = livres.findIndex(perto); if (i < 0) i = 0;
+    const x = livres.splice(i, 1)[0];
+    Object.assign(m, {k: dKey(x), nome: x.nome, id: x.id || "", hor: x.hor || "", turno: x.turno || ""}); mudou = true;
+  });
+  if (mudou) saveRepo();
+  return mudou;
+}
+function refazDiaPeloFixo(){ const d = S.cday; REPOFIXO.feito[d] = 1; saveRepoFixo(); REPO[d] = vagasDoFixo(); saveRepo(); cobMexeu(d); renderCob(); toast("Reposição do dia refeita pelo quadro fixo"); }
+function renderFixoEditor(){
+  const escs = escalasAntigas();
+  const o = cur => (cur && !escs.some(e => e[0] === cur) ? `<option value="${esc(cur)}" selected>${esc(cur)}</option>` : "") + escs.map(([c, k]) => `<option value="${esc(c)}"${c === cur ? " selected" : ""}>${esc(c)}${k ? ` · ${esc(k)}` : ""}</option>`).join("");
+  const L = S.fixoRasc;
+  return `<div class="fixo"><div class="fh"><b>Quadro fixo da reposição</b><label class="note"><input type="checkbox" id="fxOn"${REPOFIXO.on ? " checked" : ""}> entrar sozinho todo dia</label></div>
+    ${L.map((f, i) => `<div class="fr"><select data-fxa="${i}" aria-label="Escala ${i+1}"><option value="">— escala antiga —</option>${o(f.ant)}</select>
+      <label class="note">falta <input type="number" min="0" max="50" value="${+f.qtd || 0}" data-fxq="${i}" aria-label="Quantidade da escala ${i+1}"></label>
+      <button class="del" data-fxrm="${i}" title="Tirar escala" aria-label="Tirar escala ${i+1}">✕</button></div>`).join("") || `<div class="note">Nenhuma escala no quadro fixo.</div>`}
+    <div class="add"><button id="fxAdd" class="ghost">+ escala</button><span style="flex:1"></span>
+      <button id="fxCancel" class="ghost">Cancelar</button><button id="fxSave">Salvar quadro fixo</button></div>
+    <div class="note">Vale do próximo dia em diante. Pra usar o quadro novo hoje, salve e clique em "Refazer o dia pelo quadro fixo".</div></div>`;
+}
 const hrRepoDica = r => r.length ? `<span class="note">★ = diarista com horário perto do horário da escala</span>` : "";
 function renderCob(){
   const d = S.cday; $("#cPick").value = d; $("#cBig").textContent = br(d); $("#cWd").textContent = WD[wdOf(d)];
-  const st = cobState(d); const {rows, list, byKey, at, used, livres, meli, meliSet, repo, repoSet} = st;
+  let st = cobState(d);
+  const fixoNovo = aplicaQuadroFixo(d);
+  if (fixoNovo) st = cobState(d);
+  if (preencheRepoAuto(d, st) || fixoNovo){ st = cobState(d); cobMexeu(d); }
+  const {rows, list, byKey, at, used, livres, meli, meliSet, repo, repoSet} = st;
   const cob = rows.filter(r => at[r.key]).length;
   $("#cKpis").innerHTML = `
     <div class="kpi"><div class="l">Ausências no dia</div><div class="v">${rows.length}</div><div class="s">${rows.filter(r=>r.tipo==="FALTA").length} falta · ${rows.filter(r=>r.tipo==="ATESTADO").length} atestado</div></div>
@@ -1527,9 +1579,25 @@ function renderCob(){
         <span class="s mono">${x ? (esc(x.id) || "sem ID") : "–"}${x && x.hor ? ` · ${esc(x.hor)}` : ""}</span>
         <button class="del" data-rrm="${i}" title="Tirar esta reposição" aria-label="Tirar reposição ${i+1}">✕</button></div>`; }).join("")
       : `<div class="note" style="padding:4px 2px">Nenhuma reposição de quadro ainda. Clique em "+ Adicionar reposição", escolha a escala antiga na seta e, ao lado, o diarista.</div>`}
-      <div class="add"><button id="cRepoAdd" class="ghost">+ Adicionar reposição</button>${hrRepoDica(rraw)}</div>
+      <div class="add"><button id="cRepoAdd" class="ghost">+ Adicionar reposição</button>
+        <button id="cFixoBtn" class="ghost" title="Escalas e quantidades que entram sozinhas todo dia">⚙ Quadro fixo (${(REPOFIXO.lista||[]).reduce((a,f) => a + (+f.qtd||0), 0)})</button>
+        <button id="cFixoRefaz" class="ghost" title="Apaga a reposição deste dia e monta de novo pelo quadro fixo, com os primeiros diaristas livres">↻ Refazer o dia pelo quadro fixo</button>${hrRepoDica(rraw)}</div>
+      ${S.fixoRasc ? renderFixoEditor() : ""}
     </div>`;
   $("#cRepoAdd").addEventListener("click", addRepo);
+  $("#cFixoBtn").addEventListener("click", () => { S.fixoRasc = S.fixoRasc ? null : (REPOFIXO.lista || []).map(f => ({...f})); renderCob(); });
+  $("#cFixoRefaz").addEventListener("click", refazDiaPeloFixo);
+  if (S.fixoRasc){
+    const R = S.fixoRasc, cr = $("#cRepo");
+    cr.querySelectorAll("[data-fxa]").forEach(s => s.addEventListener("change", () => { R[+s.dataset.fxa].ant = s.value; }));
+    cr.querySelectorAll("[data-fxq]").forEach(s => s.addEventListener("input", () => { R[+s.dataset.fxq].qtd = Math.max(0, +s.value || 0); }));
+    cr.querySelectorAll("[data-fxrm]").forEach(b => b.addEventListener("click", () => { R.splice(+b.dataset.fxrm, 1); renderCob(); }));
+    $("#fxAdd").addEventListener("click", () => { R.push({ant:"", qtd:1}); renderCob(); });
+    $("#fxCancel").addEventListener("click", () => { S.fixoRasc = null; renderCob(); });
+    $("#fxSave").addEventListener("click", () => {
+      REPOFIXO.lista = R.filter(f => f.ant && +f.qtd > 0).map(f => ({ant:String(f.ant), qtd:+f.qtd}));
+      REPOFIXO.on = $("#fxOn").checked; saveRepoFixo(); S.fixoRasc = null; renderCob(); toast("Quadro fixo salvo"); });
+  }
   $("#cRepo").querySelectorAll("[data-ri]").forEach(s => s.addEventListener("change", () => setRepo(+s.dataset.ri, "ant", s.value)));
   $("#cRepo").querySelectorAll("[data-rd]").forEach(s => s.addEventListener("change", () => setRepo(+s.dataset.rd, "k", s.value)));
   $("#cRepo").querySelectorAll("[data-rrm]").forEach(b => b.addEventListener("click", () => delRepo(+b.dataset.rrm)));
@@ -1677,9 +1745,13 @@ async function cobPush(d){
 }
 /* ao abrir o dia: se a planilha tem uma versão mais nova (feita em outro aparelho), usa ela */
 async function cobPull(d){
+  try{ await cobPull0(d); }
+  finally{ if (!COB_PULLED.has(d)){ COB_PULLED.add(d); if (S.cday === d && S.tab === "cob") renderCob(); } }
+}
+async function cobPull0(d){
   const url = cobSheetUrl(); if (!url) return;
   try{
-    const j = await (await fetch(`${url}${url.includes("?") ? "&" : "?"}acao=ler&dia=${d}&_=${Date.now()}`, {cache:"no-store"})).json();
+    const j = await (await fetch(`${url}${url.includes("?") ? "&" : "?"}acao=ler&dia=${d}&_=${Date.now()}`, {cache:"no-store", signal: AbortSignal.timeout ? AbortSignal.timeout(10000) : undefined})).json();
     if (!j.ok || !j.estado || !(j.at > (COBAT[d] || 0))) return;
     if (_cobT && _cobDia === d) return;   // tem mudança local esperando pra subir
     const e = j.estado;
