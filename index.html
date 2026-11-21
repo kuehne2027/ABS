@@ -1190,16 +1190,37 @@ let REPO = store.get("repo", {});     // dia -> [{ant, k, nome, id, hor, turno}]
 let ATRIBM = store.get("atribm", {}); // dia -> {chaveDoABS: {an: nome do ABS, dn, did, hor, turno}} (cópia de quem cobre, para nunca perder)
 S.cday = todayKey();
 const dKey = d => idKey(d.id) || norm(d.nome);
+/* Várias abas/janelas do app abertas ao mesmo tempo: cada uma guarda uma cópia na memória.
+   Antes de gravar, cada aba confere o que já está salvo e só grava os dias que ELA mudou;
+   os dias que outra aba mudou são mantidos (nunca mais uma aba antiga apaga a cobertura de outra). */
+const COB_KEYS = {diar:()=>DIAR, atrib:()=>ATRIB, atribm:()=>ATRIBM, meli:()=>MELI, repo:()=>REPO, cobat:()=>COBAT};
+const SEEN = {};   // chave -> dia -> como o dia estava da última vez que esta aba leu/gravou
+const _js = v => v === undefined ? undefined : JSON.stringify(v);
+function seenSet(k, obj){ const m = SEEN[k] = {}; Object.keys(obj || {}).forEach(d => m[d] = _js(obj[d])); }
+Object.keys(COB_KEYS).forEach(k => seenSet(k, COB_KEYS[k]()));
+/* traz para a memória desta aba os dias que outra aba mudou e esta não mexeu; devolve true se trouxe algo */
+function adotaDeOutraAba(k){
+  const obj = COB_KEYS[k](); let salvo; try{ salvo = JSON.parse(localStorage.getItem("knfaltas:"+k) || "{}") || {}; }catch(e){ return false; }
+  const seen = SEEN[k] || {}; let trouxe = false;
+  new Set([...Object.keys(salvo), ...Object.keys(seen)]).forEach(d => {
+    const meu = _js(obj[d]), visto = seen[d], dele = _js(salvo[d]);
+    if (meu !== visto || dele === visto) return;   // esta aba mexeu no dia, ou ninguém mexeu
+    if (dele === undefined) delete obj[d]; else obj[d] = salvo[d];
+    trouxe = true;
+  });
+  return trouxe;
+}
 /* grava com aviso: se o navegador recusar (memória cheia), limpa o cache antigo e tenta de novo */
 function storeSafe(k, v){
+  if (COB_KEYS[k] && COB_KEYS[k]() === v){ adotaDeOutraAba(k); }
   const raw = JSON.stringify(v);
-  try{ localStorage.setItem("knfaltas:"+k, raw); return true; }
+  try{ localStorage.setItem("knfaltas:"+k, raw); if (COB_KEYS[k]) seenSet(k, v); return true; }
   catch(e){
     try{
       const lim = addDays(todayKey(), -60);
       Object.keys(DIAR).forEach(d => { if (d < lim && !(ATRIB[d] && Object.keys(ATRIB[d]).length)) delete DIAR[d]; });
       localStorage.setItem("knfaltas:diar", JSON.stringify(DIAR));
-      localStorage.setItem("knfaltas:"+k, raw); return true;
+      localStorage.setItem("knfaltas:"+k, raw); if (COB_KEYS[k]) seenSet(k, v); return true;
     }catch(e2){ toast("⚠ Não consegui salvar no navegador (memória cheia ou modo anônimo)."); return false; }
   }
 }
@@ -2608,6 +2629,12 @@ $("#btnRefresh").addEventListener("click",async()=>{
 });
 $("#wppClose").addEventListener("click",()=>$("#dlgWpp").close());
 $("#wppCopy").addEventListener("click",()=>copyText($("#wppText").value));
+/* outra aba gravou: atualiza esta na hora */
+addEventListener("storage", e => {
+  const k = (e.key || "").replace(/^knfaltas:/, "");
+  if (!COB_KEYS[k] || e.key === k) return;
+  if (adotaDeOutraAba(k)){ seenSet(k, JSON.parse(e.newValue || "{}") || {}); if (S.tab === "cob") renderCob(); }
+});
 document.addEventListener("visibilitychange",()=>{ if(document.visibilityState!=="visible") return; if(sheetCfg()) pullSheet(true); if(S.tab==="cob") loadDiarDB(true); });
 setInterval(()=>{ if(S.tab==="cob" && document.visibilityState==="visible") loadDiarDB(true); }, 120000);
 
