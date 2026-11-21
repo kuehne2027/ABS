@@ -69,6 +69,11 @@ main{padding-block:18px 40px}
 .calc-line{display:flex;justify-content:space-between;gap:12px;padding:9px 0;border-bottom:1px solid var(--line);font-size:14px}
 .calc-line b{font-size:17px;white-space:nowrap;font-variant-numeric:tabular-nums}
 .calc-rep{background:var(--soft);border-radius:10px;padding:12px 14px;font-size:13px;line-height:1.6;white-space:pre-line;margin-top:12px}
+.calc-hc{border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-top:12px;background:var(--soft)}
+.calc-chips{display:flex;flex-wrap:wrap;gap:6px;margin:4px 0 6px}
+.calc-chips label{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);background:var(--panel);border-radius:999px;padding:4px 10px;font-size:13px;cursor:pointer;font-weight:600}
+.calc-chips label.off{opacity:.55;text-decoration:line-through;font-weight:500}
+.calc-chips input{margin:0}
 .calc-warn{background:var(--falta-soft);border:1px solid var(--line);border-left:4px solid var(--warn);border-radius:10px;padding:10px 14px;font-size:13.5px}
 .grid{display:grid;gap:14px}
 .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
@@ -384,6 +389,15 @@ select.dsel.vazio{border-color:var(--warn);color:var(--warn);font-weight:600}
       <div class="row" style="gap:8px;margin-top:10px;flex-wrap:wrap">
         <button type="button" id="calcPuxar">Puxar ABS lançados no dia</button>
         <span class="note" id="calcPuxarInfo" style="margin:0"></span>
+      </div>
+      <div class="calc-hc" id="calcHC">
+        <div class="row" style="justify-content:space-between;gap:8px">
+          <b>Quadro do dia pela planilha HC <span class="note" style="font-weight:400">(aba Presença KN)</span></b>
+          <button type="button" id="calcHCBtn">Atualizar do HC</button>
+        </div>
+        <div class="note" id="calcHCMsg" style="margin:6px 0">Carregando…</div>
+        <div class="calc-chips" id="calcHCChips"></div>
+        <div class="note">Marcado = entra no quadro. Por padrão só a folga (FO) e quem está sem marcação ficam de fora; clique num código para tirar ou pôr.</div>
       </div>
       <p class="note">A quantidade exata é <b>quadro × 0,025</b>; o arredondamento define quantas pessoas inteiras entram na cota.</p>
     </div>
@@ -1978,7 +1992,7 @@ const CALC = Object.assign({quadro:131, abs:8, diar:16, arr:"cima"}, store.get("
 function calcInt(v){ const n = Number(v); return Number.isFinite(n) ? Math.max(0, Math.trunc(n)) : 0; }
 function calcAbsDoDia(d){ return DATA.filter(r => r.d === d).length; }
 function renderCalc(){
-  if (!$("#calcData").value) $("#calcData").value = todayKey();
+  if (!$("#calcData").value) $("#calcData").value = (CALC.dia && CALC.diaEm === todayKey()) ? CALC.dia : todayKey();   // volta no dia que estava aberto hoje
   const fill = (id, v) => { const el = $(id); if (document.activeElement !== el && String(el.value) !== String(v)) el.value = v; };
   fill("#calcQuadro", CALC.quadro); fill("#calcAbs", CALC.abs); fill("#calcDiar", CALC.diar); $("#calcArr").value = CALC.arr;
   const quadro = calcInt(CALC.quadro), abs = calcInt(CALC.abs), diaristas = calcInt(CALC.diar), exato = quadro * 0.025;
@@ -1996,11 +2010,74 @@ function renderCalc(){
   $("#calcRel").textContent = CALC_MSG;
   const n = d ? calcAbsDoDia(d) : 0;
   $("#calcPuxarInfo").textContent = d ? `${n} ABS lançado(s) em ${br(d)}` : "";
+  renderHC(d || todayKey());
+  if (HCP.dias && !HCP.loading && CALC.hcDia !== (d || todayKey()) && hcQuadro(d || todayKey()) != null) setTimeout(() => calcAplicaHC(false), 0);
 }
 function calcSave(){ store.set("calc", CALC); renderCalc(); }
-[["#calcQuadro","quadro"],["#calcAbs","abs"],["#calcDiar","diar"]].forEach(([id,k]) => $(id).addEventListener("input", e => { CALC[k] = e.target.value; calcSave(); }));
+/* ===== Quadro do dia pela planilha Headcount (aba "Preseça KN": uma coluna por dia com P, FO, F, AT…) ===== */
+const HC_PRES = {id:"1j8VQgyyMQ4eduPRdBhB4twVxim__vpdgWBwoc0lvduQ", gid:"1104254786"};
+let HCP = {at:0, dias:null, err:"", loading:null};   // dias: "aaaa-mm-dd" -> {CÓDIGO: qtd}
+let CALC_FORA = new Set(store.get("calcFora", ["FO", "FOLGA", ""]));   // códigos que NÃO entram no quadro
+const hcCod = v => String(v == null ? "" : v).trim().toUpperCase().replace(/\s+/g, " ");
+function hcData(t){ const m = String(t||"").trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/); return m ? `${m[3]}-${m[2].padStart(2,"0")}-${m[1].padStart(2,"0")}` : null; }
+async function loadHCPres(forcar){
+  if (!forcar && HCP.dias && Date.now() - HCP.at < 5*60000) return HCP;
+  if (HCP.loading) return HCP.loading;
+  HCP.loading = (async () => {
+    try{
+      const res = await fetch(`https://docs.google.com/spreadsheets/d/${HC_PRES.id}/export?format=csv&gid=${HC_PRES.gid}&_=${Date.now()}`, {cache:"no-store"});
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      const wb = XLSX.read(await res.text(), {type:"string", raw:true});
+      const a = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {header:1, raw:false, defval:""});
+      const h = (a[0] || []).map(String);
+      const iNome = h.findIndex(x => /^nome$/i.test(x.trim()));
+      // datas das colunas (corrige cabeçalho trocado: se a data não segue a anterior mas a próxima segue, é o dia do meio)
+      const ds = h.map(hcData);
+      for (let j = 1; j < ds.length; j++){
+        const ant = ds[j-1]; if (!ant) continue;
+        const esp = addDays(ant, 1);
+        if (ds[j] && ds[j] !== esp && ds[j+1] === addDays(ant, 2)) ds[j] = esp;
+      }
+      const dias = {};
+      a.slice(1).forEach(r => {
+        if (!String(r[iNome < 0 ? 1 : iNome] || "").trim()) return;
+        ds.forEach((d, j) => { if (!d) return; const c = hcCod(r[j]); const m = dias[d] || (dias[d] = {}); m[c] = (m[c] || 0) + 1; });
+      });
+      HCP = {at: Date.now(), dias, err: "", loading: null};
+    }catch(e){ HCP = {...HCP, err: e.message || "erro", loading: null}; }
+    if (S.tab === "calc") renderCalc();
+    return HCP;
+  })();
+  return HCP.loading;
+}
+function hcQuadro(d){ const m = HCP.dias && HCP.dias[d]; if (!m) return null; let n = 0; Object.entries(m).forEach(([c, q]) => { if (!CALC_FORA.has(c)) n += q; }); return n; }
+function renderHC(d){
+  const msg = $("#calcHCMsg"), ch = $("#calcHCChips");
+  if (HCP.loading && !HCP.dias){ msg.textContent = "Lendo a planilha HC…"; ch.innerHTML = ""; return; }
+  if (!HCP.dias){ msg.innerHTML = `<b style="color:var(--falta)">Não consegui ler a planilha HC</b>${HCP.err ? ` (${esc(HCP.err)})` : ""}. Preencha o quadro na mão ou tente "Atualizar do HC".`; ch.innerHTML = ""; return; }
+  const m = HCP.dias[d];
+  if (!m){ msg.textContent = `A planilha HC não tem a coluna de ${br(d)}.`; ch.innerHTML = ""; return; }
+  const q = hcQuadro(d), tot = Object.values(m).reduce((s, x) => s + x, 0);
+  const fora = tot - q;
+  msg.innerHTML = `<b>${q}</b> no quadro de ${br(d)} · ${fora} fora (folga/sem marcação) · ${tot} pessoas na aba · lido às ${new Date(HCP.at).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"})}`;
+  const nome = c => c === "" ? "sem marcação" : c;
+  ch.innerHTML = Object.entries(m).sort((x, y) => y[1] - x[1]).map(([c, n]) => { const on = !CALC_FORA.has(c);
+    return `<label class="${on ? "" : "off"}"><input type="checkbox" data-hc="${esc(c)}"${on ? " checked" : ""}>${esc(nome(c))} <span class="note" style="margin:0">${n}</span></label>`; }).join("");
+  ch.querySelectorAll("input[data-hc]").forEach(i => i.addEventListener("change", () => {
+    const c = i.dataset.hc; if (i.checked) CALC_FORA.delete(c); else CALC_FORA.add(c);
+    store.set("calcFora", [...CALC_FORA]); calcAplicaHC(true);
+  }));
+}
+/* põe o quadro do HC no campo (quando muda o dia, ao abrir a aba ou ao trocar os códigos) */
+function calcAplicaHC(forcar){
+  const d = $("#calcData").value || todayKey(); const q = hcQuadro(d);
+  if (q != null && (forcar || CALC.hcDia !== d || CALC.quadro === "" || CALC.hcAuto)){ CALC.quadro = q; CALC.hcDia = d; CALC.hcAuto = true; store.set("calc", CALC); $("#calcQuadro").value = q; }
+  renderCalc();
+}
+[["#calcQuadro","quadro"],["#calcAbs","abs"],["#calcDiar","diar"]].forEach(([id,k]) => $(id).addEventListener("input", e => { CALC[k] = e.target.value; if (k === "quadro"){ CALC.hcAuto = false; CALC.hcDia = $("#calcData").value || todayKey(); } calcSave(); }));
+$("#calcHCBtn").addEventListener("click", async () => { const b = $("#calcHCBtn"); b.disabled = true; b.textContent = "Lendo…"; await loadHCPres(true); b.disabled = false; b.textContent = "Atualizar do HC"; calcAplicaHC(true); });
 $("#calcArr").addEventListener("change", e => { CALC.arr = e.target.value; calcSave(); });
-$("#calcData").addEventListener("change", renderCalc);
+$("#calcData").addEventListener("change", () => { CALC.dia = $("#calcData").value; CALC.diaEm = todayKey(); store.set("calc", CALC); calcAplicaHC(true); });
 $("#calcPuxar").addEventListener("click", () => { const d = $("#calcData").value; if (!d) return; CALC.abs = calcAbsDoDia(d); $("#calcAbs").value = CALC.abs; calcSave(); });
 $("#calcLimpar").addEventListener("click", () => { CALC.quadro = ""; CALC.abs = ""; CALC.diar = ""; ["#calcQuadro","#calcAbs","#calcDiar"].forEach(id => $(id).value = ""); calcSave(); $("#calcQuadro").focus(); });
 $("#calcCopiar").addEventListener("click", async () => {
@@ -2011,7 +2088,7 @@ $("#calcCopiar").addEventListener("click", async () => {
 });
 
 /* ===== Abas / render ===== */
-function setTab(t){ S.tab=t; store.set("tab",t); document.querySelectorAll(".tabs button").forEach(b=>b.setAttribute("aria-selected", b.dataset.tab===t)); ["lanc","cob","calc","dia","ciclo","pess","reg"].forEach(x=>$("#tab-"+x).hidden = x!==t); render(); if(t==="cob"){ loadDiarDB(true); loadEscalas(false); cobPull(S.cday); } }
+function setTab(t){ S.tab=t; store.set("tab",t); document.querySelectorAll(".tabs button").forEach(b=>b.setAttribute("aria-selected", b.dataset.tab===t)); ["lanc","cob","calc","dia","ciclo","pess","reg"].forEach(x=>$("#tab-"+x).hidden = x!==t); render(); if(t==="cob"){ loadDiarDB(true); loadEscalas(false); cobPull(S.cday); } if(t==="calc") loadHCPres(false).then(() => calcAplicaHC(false)); }
 function renderSource(){
   const dot=$("#srcDot"), tx=$("#srcText");
   const ds=DATA.map(r=>r.d).sort();
